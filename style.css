@@ -149,6 +149,18 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   line-height: 1.2;
 }
 .h2-sub { font-size: 11px; color: var(--ink-3); font-weight: normal; margin-left: 6px; }
+.inline-setting-btn {
+  float: right;
+  margin: -4px 0 0 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--blue);
+  background: var(--row-hover);
+  font-size: 10px;
+  cursor: pointer;
+}
+.inline-setting-btn.is-muted { color: var(--ink-2); }
 .empty { color: var(--ink-3); text-align: center; padding: 24px 10px; font-size: 13px; }
 .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
@@ -1145,6 +1157,107 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   cursor: pointer;
 }
 .modal.hidden { display: none; }
+.settlement-modal {
+  z-index: 80;
+  padding: 22px;
+  cursor: default;
+  backdrop-filter: blur(6px);
+  background: rgba(8, 11, 16, .82);
+}
+.settlement-shell {
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0,0,0,.36);
+  animation: card-detail-in .24s ease-out both;
+}
+.settlement-head {
+  padding: 24px 26px 20px;
+  color: #fff;
+  background: linear-gradient(135deg, #273143, #151a23);
+}
+.settlement-head.season-up { background: linear-gradient(135deg, #7c321f, #c38326); }
+.settlement-kicker { font-size: 10px; font-weight: 800; letter-spacing: .18em; opacity: .72; }
+.settlement-head h2 { margin: 5px 0 3px; font-size: 25px; }
+.settlement-head p { font-size: 12px; opacity: .78; }
+.settlement-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 16px 20px 4px;
+}
+.settlement-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--row-hover);
+}
+.settlement-summary small, .settlement-season-grid small, .settlement-rerolls > small { color: var(--ink-3); font-size: 10px; }
+.settlement-summary strong { font-size: 20px; }
+.settlement-summary em { color: var(--ink-2); font-size: 10px; font-style: normal; }
+.settlement-section-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.settlement-section-title span { color: var(--ink-3); font-size: 10px; font-weight: normal; }
+.settlement-market, .settlement-events, .settlement-season { padding: 14px 20px 0; }
+.settlement-season-grid, .settlement-mover-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.settlement-season-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gold) 10%, var(--panel));
+}
+.settlement-season-grid strong { font-size: 12px; }
+.settlement-rerolls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.settlement-rerolls > small { width: 100%; }
+.settlement-rerolls span { padding: 3px 7px; border-radius: 10px; background: var(--chip); font-size: 10px; }
+.settlement-mover-cols > div { padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; }
+.settlement-mover-cols h3 { margin-bottom: 6px; color: var(--ink-2); font-size: 10px; }
+.settlement-mover {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 8px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--row-line);
+  font-size: 11px;
+}
+.settlement-mover:last-child { border-bottom: 0; }
+.settlement-mover > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settlement-mover small { grid-column: 1 / -1; color: var(--ink-3); font-size: 9px; }
+.settlement-event { padding: 6px 9px; border-left: 2px solid var(--border); color: var(--ink-2); background: var(--row-hover); font-size: 11px; }
+.settlement-event + .settlement-event { margin-top: 4px; }
+.settlement-event.good { border-color: var(--red); }
+.settlement-event.bad { border-color: var(--green); }
+.settlement-empty { padding: 10px; color: var(--ink-3); font-size: 10px; text-align: center; }
+.settlement-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 13px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.settlement-actions label { color: var(--ink-2); font-size: 11px; cursor: pointer; }
+.settlement-actions input { vertical-align: -2px; accent-color: var(--red); }
 .card-clickable { cursor: zoom-in; outline: none; }
 .card-clickable:focus-visible {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 65%, transparent), 0 10px 22px rgba(16,24,40,.28);
@@ -1444,6 +1557,19 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 
 @media (max-width: 560px) {
   .brand-mark { width: 25px; height: 25px; }
+  .inline-setting-btn { float: none; margin: 7px 0 0; display: block; }
+  .settlement-modal { padding: 8px; }
+  .settlement-shell { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 12px; }
+  .settlement-head { padding: 19px 17px 16px; }
+  .settlement-head h2 { font-size: 21px; }
+  .settlement-summary { grid-template-columns: 1fr 1fr 1fr; gap: 5px; padding: 11px 10px 0; }
+  .settlement-summary > div { padding: 8px 6px; }
+  .settlement-summary strong { font-size: 15px; }
+  .settlement-summary em { font-size: 8px; }
+  .settlement-market, .settlement-events, .settlement-season { padding: 12px 10px 0; }
+  .settlement-season-grid, .settlement-mover-cols { grid-template-columns: 1fr; }
+  .settlement-actions { align-items: stretch; flex-direction: column; gap: 9px; padding: 11px 10px; }
+  .settlement-actions .btn { width: 100%; }
   .nav-shell { margin-left: -20px; margin-right: -20px; }
   #nav { margin-top: 10px; padding-left: 8px; padding-right: 34px; scrollbar-width: none; scroll-behavior: smooth; }
   #nav::-webkit-scrollbar { display: none; }

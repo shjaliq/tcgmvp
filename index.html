@@ -260,7 +260,7 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
       <div id="rumors"></div>
     </section>
     <section class="panel" id="log-panel">
-      <h2>📰 市场动态 <span class="h2-sub">最新在前</span></h2>
+      <h2>📰 市场动态 <span class="h2-sub">最新在前</span><button id="settlementSettingBtn" class="inline-setting-btn" type="button" onclick="enableSettlementModal()"></button></h2>
       <div id="log"></div>
     </section>
     <section class="panel" id="trade-panel">
@@ -269,6 +269,16 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
     </section>
   </div>
 </main>
+
+<div id="settlementModal" class="modal settlement-modal hidden" onclick="handleSettlementModalClick(event)" role="dialog" aria-modal="true" aria-label="每日结算">
+  <div class="settlement-shell">
+    <div id="settlementContent"></div>
+    <div class="settlement-actions">
+      <label><input id="skipSettlementModal" type="checkbox" onchange="setSkipSettlementModal(this.checked)"> 以后不再显示结算界面</label>
+      <button class="btn btn-primary" type="button" onclick="closeSettlementModal()">继续经营</button>
+    </div>
+  </div>
+</div>
 
 <div id="cardDetailModal" class="modal card-detail-modal hidden" onclick="handleCardDetailClick(event)" role="dialog" aria-modal="true" aria-label="卡牌详情">
   <div class="card-detail-shell">

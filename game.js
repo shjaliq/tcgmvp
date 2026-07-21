@@ -16,6 +16,7 @@ const SAVE_KEY = 'tcgmvp_save_v1';
 const CAREER_KEY = 'tcgmvp_career_v1';
 const PACK_ANIMATION_KEY = 'tcgmvp_skip_pack_animation';
 const NAV_HINT_KEY = 'tcgmvp_mobile_nav_hint_seen';
+const SETTLEMENT_SKIP_KEY = 'tcgmvp_skip_settlement_modal';
 
 const PACK_TYPES = {
   standard: { name: '标准卡包', face: '赛季补充包', price: 60, size: 3, unlockLv: 0, css: 'standard', desc: '3 张当季随机卡牌' },
@@ -1746,8 +1747,123 @@ function dailyEvent() {
   state.rumors = makeRumors();
 }
 
+function settlementModalSkipped() {
+  try { return localStorage.getItem(SETTLEMENT_SKIP_KEY) === '1'; } catch (e) { return false; }
+}
+
+function setSkipSettlementModal(skip) {
+  try {
+    if (skip) localStorage.setItem(SETTLEMENT_SKIP_KEY, '1');
+    else localStorage.removeItem(SETTLEMENT_SKIP_KEY);
+  } catch (e) {}
+  renderSettlementSetting();
+}
+
+function renderSettlementSetting() {
+  const btn = $('settlementSettingBtn');
+  if (!btn) return;
+  const skipped = settlementModalSkipped();
+  btn.textContent = skipped ? '↩ 恢复结算弹窗' : '✓ 结算弹窗已开启';
+  btn.classList.toggle('is-muted', skipped);
+  btn.title = skipped ? '重新开启每日与赛季结算界面' : '结算界面会在进入下一天后自动显示';
+}
+
+function enableSettlementModal() {
+  setSkipSettlementModal(false);
+  const checkbox = $('skipSettlementModal');
+  if (checkbox) checkbox.checked = false;
+  flash('每日与赛季结算弹窗已恢复');
+}
+
+function closeSettlementModal() {
+  $('settlementModal').classList.add('hidden');
+}
+
+function handleSettlementModalClick(e) {
+  if (e.target === e.currentTarget) closeSettlementModal();
+}
+
+function signedMoney(value) {
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}¥${Math.abs(rounded)}`;
+}
+
+function settlementMoverRows(beforeValues) {
+  return cardPool.map((t, i) => {
+    const before = beforeValues[i] || 1;
+    const after = cardValue(t, curSeason());
+    return { t, before, after, pct: Math.round((after / before - 1) * 100) };
+  }).filter(x => x.pct !== 0);
+}
+
+function buildSettlementHTML(snapshot, seasonChanged) {
+  const worth = netWorth();
+  const collectionValue = worth - state.money;
+  const movers = settlementMoverRows(snapshot.cardValues);
+  const risers = movers.filter(x => x.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 3);
+  const fallers = movers.filter(x => x.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 3);
+  const newLogs = state.log.filter(entry => !snapshot.oldLogs.has(entry)).slice(-6).reverse();
+  const moverHTML = (items, cls, empty) => items.length
+    ? items.map(x => `<div class="settlement-mover"><span>${x.t.name}</span><b class="${cls}">${x.pct > 0 ? '+' : ''}${x.pct}%</b><small>¥${x.before} → ¥${x.after}</small></div>`).join('')
+    : `<div class="settlement-empty">${empty}</div>`;
+  const seasonExtras = seasonChanged ? (() => {
+    const rotated = curSeason() - 3;
+    const deltas = cardPool.filter(t => t.seasonDelta && t.seasonDelta.season === curSeason())
+      .sort((a, b) => Math.abs(b.seasonDelta.powerPct) - Math.abs(a.seasonDelta.powerPct)).slice(0, 5);
+    return `<section class="settlement-season">
+      <div class="settlement-section-title">赛季交接</div>
+      <div class="settlement-season-grid">
+        <div><small>本季主题</small><strong>${state.themes.map(a => `${ARCHETYPES[a].emoji}${ARCHETYPES[a].name}`).join(' · ')}</strong></div>
+        <div><small>环境轮换</small><strong>${rotated >= 1 ? `S${rotated} 正式退环境` : '尚无卡牌退环境'}</strong></div>
+      </div>
+      <div class="settlement-rerolls"><small>数值重投幅度较大的卡</small>${deltas.map(t => {
+        const pct = t.seasonDelta.powerPct;
+        return `<span>${t.name} <b class="${pct >= 0 ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}%</b></span>`;
+      }).join('')}</div>
+    </section>`;
+  })() : '';
+  return `<header class="settlement-head${seasonChanged ? ' season-up' : ''}">
+      <span class="settlement-kicker">${seasonChanged ? 'NEW SEASON' : 'DAILY REPORT'}</span>
+      <h2>${seasonChanged ? `第 ${curSeason()} 赛季开幕` : `第 ${snapshot.day} 天结算`}</h2>
+      <p>${seasonChanged ? `第 ${snapshot.season} 赛季已经落幕，新的市场格局正在形成` : `已进入第 ${state.day} 天，看看昨天发生了什么`}</p>
+    </header>
+    <div class="settlement-summary">
+      <div><small>现金变化</small><strong class="${state.money >= snapshot.money ? 'up' : 'down'}">${signedMoney(state.money - snapshot.money)}</strong><em>现有 ¥${state.money}</em></div>
+      <div><small>藏品估值</small><strong class="${collectionValue >= snapshot.collectionValue ? 'up' : 'down'}">${signedMoney(collectionValue - snapshot.collectionValue)}</strong><em>现值 ¥${collectionValue}</em></div>
+      <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
+    </div>
+    ${seasonExtras}
+    <section class="settlement-market">
+      <div class="settlement-section-title">行情摘要</div>
+      <div class="settlement-mover-cols">
+        <div><h3>涨幅领先</h3>${moverHTML(risers, 'up', '今日暂无上涨')}</div>
+        <div><h3>跌幅领先</h3>${moverHTML(fallers, 'down', '今日暂无下跌')}</div>
+      </div>
+    </section>
+    <section class="settlement-events">
+      <div class="settlement-section-title">今日要闻 <span>${state.dealers.length} 位来客 · ${state.market.length} 张公开挂牌 · ${state.rumors.length} 条新传闻</span></div>
+      ${newLogs.length ? newLogs.map(x => `<div class="settlement-event ${x.c || ''}">${x.t.replace(/^第\d+天\s*/, '')}</div>`).join('') : '<div class="settlement-empty">今天风平浪静，没有特别事件</div>'}
+    </section>`;
+}
+
+function showSettlementModal(snapshot, seasonChanged) {
+  if (settlementModalSkipped()) return;
+  $('settlementContent').innerHTML = buildSettlementHTML(snapshot, seasonChanged);
+  $('skipSettlementModal').checked = false;
+  $('settlementModal').classList.remove('hidden');
+}
+
 function nextDay() {
   const prevSeason = curSeason();
+  const snapshot = {
+    day: state.day,
+    season: prevSeason,
+    money: state.money,
+    worth: netWorth(),
+    collectionValue: netWorth() - state.money,
+    cardValues: cardPool.map(t => cardValue(t, prevSeason)),
+    oldLogs: new Set(state.log),
+  };
   state.day++;
   state.packsBought = 0;
   state.packTypeBought = {};
@@ -1763,6 +1879,7 @@ function nextDay() {
   if (state.history.length > 60) state.history.shift();
   checkAchievements();
   renderAll();
+  showSettlementModal(snapshot, curSeason() > prevSeason);
 }
 
 // ==================== 渲染 ====================
@@ -2464,6 +2581,7 @@ function renderAll() {
   renderRumors();
   renderLog();
   renderTrades();
+  renderSettlementSetting();
   saveGame();
 }
 
@@ -2494,7 +2612,9 @@ function init() {
   renderRoute();
   setupMobileNavGuide();
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !$('cardDetailModal').classList.contains('hidden')) closeCardDetail();
+    if (e.key !== 'Escape') return;
+    if (!$('settlementModal').classList.contains('hidden')) closeSettlementModal();
+    else if (!$('cardDetailModal').classList.contains('hidden')) closeCardDetail();
   });
 }
 
