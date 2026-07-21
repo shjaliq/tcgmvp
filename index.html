@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>集换大亨 · MVP</title>
+<script>
+// 首屏前恢复主题，避免闪烁
+try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <div>
+      <h1>🎴 集换大亨</h1>
+      <div class="slogan">开卡包 · 看行情 · 低买高卖</div>
+    </div>
+    <div class="stats">
+      <span>📅 第 <b id="day">1</b> 天</span>
+      <span>🗓️ 第 <b id="season">1</b> 赛季</span>
+      <span>💰 资金 <b id="money">¥0</b></span>
+      <span>💎 身价 <b id="networth">¥0</b></span>
+      <span id="reprintInfo" class="reprint-info" style="display:none"></span>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="nextDay()">下一天 ⏭</button>
+      <button class="btn btn-dim" onclick="toggleTheme()" id="themeBtn">🌙</button>
+      <button class="btn btn-dim" onclick="newGame()">🔄 重开</button>
+      <div class="save-hint">💾 自动存档已开启</div>
+    </div>
+  </div>
+  <nav id="nav">
+    <a href="#/home" data-route="home">🏠 总览</a>
+    <a href="#/shop" data-route="shop">🎁 开包</a>
+    <a href="#/market" data-route="market">🏪 市场</a>
+    <a href="#/private" data-route="private">🤝 私下交易</a>
+    <a href="#/commission" data-route="commission">📋 委托</a>
+    <a href="#/achievements" data-route="achievements">🏆 成就</a>
+    <a href="#/collection" data-route="collection">🗃️ 收藏</a>
+    <a href="#/upgrade" data-route="upgrade">🚀 升级</a>
+    <a href="#/news" data-route="news">📰 资讯</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ========== 总览 ========== -->
+  <div class="page" id="page-home">
+    <div class="stat-cards">
+      <div class="stat-card"><div class="sc-label">💰 资金</div><div class="sc-val" id="home-money">-</div></div>
+      <div class="stat-card"><div class="sc-label">💎 身价</div><div class="sc-val" id="home-networth">-</div></div>
+      <div class="stat-card"><div class="sc-label">🗃️ 收藏</div><div class="sc-val" id="home-coll">-</div></div>
+      <div class="stat-card"><div class="sc-label">🔥 最热体系</div><div class="sc-val" id="home-hot">-</div></div>
+    </div>
+
+    <div class="quick-nav">
+      <a class="btn btn-primary" href="#/shop">🎁 去开包</a>
+      <a class="btn buy-btn" href="#/market">🏪 去市场</a>
+      <a class="btn btn-dim" href="#/private">🤝 找商人</a>
+      <a class="btn btn-dim" href="#/collection">🗃️ 看收藏</a>
+      <a class="btn btn-dim" href="#/upgrade">🚀 店铺升级</a>
+    </div>
+
+    <section class="panel">
+      <h2>📈 身价走势</h2>
+      <div id="worthChart" class="chart"></div>
+    </section>
+
+    <div class="two-cols">
+      <section class="panel">
+        <h2>📢 今日风声 <span class="h2-sub">未必成真</span></h2>
+        <div id="home-rumors"></div>
+      </section>
+      <section class="panel">
+        <h2>📰 最新动态</h2>
+        <div id="home-log"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ========== 开包 ========== -->
+  <div class="page" id="page-shop">
+    <section class="panel shop-hero">
+      <div class="pack-display" aria-hidden="true">
+        <div class="booster-pack shop-pack pack-kind-standard">
+          <div class="pack-crimp pack-crimp-top"></div>
+          <div class="pack-face">
+            <span class="pack-brand">TCG TYCOON</span>
+            <span class="pack-emblem">✦</span>
+            <b>赛季补充包</b>
+            <small id="shopPackSeason">SEASON 1</small>
+            <span class="pack-count">3 CARDS</span>
+          </div>
+          <div class="pack-crimp pack-crimp-bottom"></div>
+        </div>
+      </div>
+      <h2>标准卡包</h2>
+      <div class="pack-sub">每包 3 张随机卡牌</div>
+      <div class="pack-odds-table">
+        <span class="rar-tag rar-bg-N">N</span> 62%
+        <span class="rar-tag rar-bg-R">R</span> 26%
+        <span class="rar-tag rar-bg-SR">SR</span> 10%
+        <span class="rar-tag rar-bg-UR">UR</span> 2%
+      </div>
+      <button id="buyPackBtn" class="btn btn-primary big" onclick="buyPack()">开一包</button>
+      <label class="skip-pack-option">
+        <input id="skipPackAnimation" type="checkbox" onchange="setSkipPackAnimation(this.checked)">
+        <span>跳过撕包动画</span>
+      </label>
+      <div class="pack-stock" id="packStock"></div>
+      <div class="pack-season" id="packSeason"></div>
+    </section>
+    <section class="panel special-pack-section">
+      <h2>🎫 特殊卡包</h2>
+      <div class="pack-catalog" id="specialPacks"></div>
+    </section>
+  </div>
+
+  <!-- ========== 市场 ========== -->
+  <div class="page" id="page-market">
+    <section class="panel" id="market-panel">
+      <h2>🏪 公开市场 <span class="h2-sub" id="marketFeeInfo">每日刷新</span></h2>
+      <div id="market" class="market-grid"></div>
+    </section>
+    <section class="panel" id="arch-panel">
+      <h2>🏆 体系风云榜 <span class="h2-sub">按使用率排名 · 每日更新</span></h2>
+      <div id="archBoard"></div>
+    </section>
+    <section class="panel" id="board-panel">
+      <h2>📊 全卡行情 <span class="h2-sub" id="boardSub"></span></h2>
+      <div id="board"></div>
+    </section>
+  </div>
+
+  <!-- ========== 私下交易 ========== -->
+  <div class="page" id="page-private">
+    <section class="panel private-trade-head">
+      <h2>🤝 今日来客 <span class="h2-sub" id="privateGuestCount"></span></h2>
+      <p class="private-help">每位商人都有独立偏好、收购预算与耐心。可以接受来价、尝试讲价，也可以主动拿收藏向对方询价。</p>
+      <div id="privateGuests" class="private-guests"></div>
+    </section>
+    <section class="panel private-inventory-panel" id="privateInventoryPanel">
+      <h2>💼 主动售卡 <span class="h2-sub">非偏好卡会被压价，部分商人会直接拒收</span></h2>
+      <div id="privateInventory"></div>
+    </section>
+  </div>
+
+  <!-- ========== 委托 ========== -->
+  <div class="page" id="page-commission">
+    <section class="panel commission-head">
+      <div class="commission-title-row">
+        <div>
+          <h2>📋 委托中心 <span class="h2-sub">每日刷新 · 赛季结束时未完成委托失效</span></h2>
+          <p class="commission-help">围绕指定体系提交一套卡牌。结算返还卡牌当前总价值的 95%，另加委托报酬；超过目标分的部分可获得声望。</p>
+        </div>
+        <div id="commissionStats" class="commission-stats"></div>
+      </div>
+      <details class="commission-rules">
+        <summary>查看评分与奖励规则</summary>
+        <div><b>体系分 50%</b>：首张目标体系核心收益最高；目标组件在阈值前优于泛用卡，超过阈值后泛用卡反超；跑题组件会扣分。</div>
+        <div><b>构筑分 32%</b>：效果覆盖 40% + 最小费用 20% + 费用曲线 40%，推荐曲线为 1–2 / 3–4 / 5–6 / 7+ 费占 30% / 35% / 25% / 10%。</div>
+        <div><b>强度分 18%</b>：所选卡牌本赛季强度百分位的平均值。超出目标分才产生声望；普通 / 进阶 / 精英委托分别最多获得 8 / 12 / 18 点。</div>
+        <div><b>专项委托</b>：体系情怀提高体系分权重；竞技挑战奖励曲线与强度且禁用退环境卡；二次元企划奖励萌系画风；怀旧收藏奖励往赛季印次。</div>
+      </details>
+      <div id="commissionBoard" class="commission-board"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🧩 进行中的委托 <span class="h2-sub">用收藏中的实际印次配牌，达到目标评分后提交</span></h2>
+      <div id="activeCommissions" class="active-commissions"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🏅 声望工坊 <span class="h2-sub">永久生效 · 不直接增加委托评分</span></h2>
+      <div id="reputationUpgrades" class="reputation-upgrades"></div>
+    </section>
+  </div>
+
+  <!-- ========== 成就 ========== -->
+  <div class="page" id="page-achievements">
+    <section class="panel achievement-hero">
+      <div>
+        <h2>🏆 成就陈列室</h2>
+        <p>单局挑战必须在一次周目的期限内达成，失败可重开再试；完成状态与生涯里程碑都会永久保留。</p>
+      </div>
+      <div id="achievementSummary" class="achievement-summary"></div>
+    </section>
+    <section class="panel">
+      <h2>⏱️ 单局限时挑战 <span class="h2-sub">本局进度 · 完成后永久点亮</span></h2>
+      <div id="runAchievements" class="achievement-grid"></div>
+    </section>
+    <section class="panel">
+      <h2>🌟 生涯累计里程碑 <span class="h2-sub">重开游戏后仍会保留</span></h2>
+      <div id="careerAchievements" class="achievement-grid career-grid"></div>
+    </section>
+  </div>
+
+  <!-- ========== 收藏 ========== -->
+  <div class="page" id="page-collection">
+    <section class="panel">
+      <h2>🗃️ 我的收藏</h2>
+      <div class="coll-summary" id="collSummary"></div>
+      <div class="collection-tools">
+        <div class="collection-filters">
+          <input id="collSearch" type="search" placeholder="搜索卡名…" oninput="renderCollection()">
+          <select id="collRarity" onchange="renderCollection()" aria-label="按稀有度筛选">
+            <option value="">全部稀有度</option><option value="N">N</option><option value="R">R</option><option value="SR">SR</option><option value="UR">UR</option>
+          </select>
+          <select id="collArch" onchange="renderCollection()" aria-label="按体系筛选">
+            <option value="">全部体系</option>
+            <option value="dragon">龙族</option><option value="mecha">机甲</option><option value="mage">魔法使</option><option value="undead">不死</option><option value="fairy">妖精</option>
+            <option value="warrior">剑士</option><option value="beast">兽族</option><option value="blood">血族</option><option value="demon">恶魔</option><option value="angel">天使</option>
+          </select>
+          <select id="collSeason" onchange="renderCollection()" aria-label="按赛季状态筛选">
+            <option value="">全部赛季</option><option value="current">当季</option><option value="legal">仍在环境</option><option value="rotated">已退环境</option><option value="reprint">复刻中</option>
+          </select>
+          <select id="collTier" onchange="renderCollection()" aria-label="按卡牌定位筛选">
+            <option value="">全部定位</option><option value="core">体系核心</option><option value="part">体系组件</option><option value="generic">泛用卡</option>
+          </select>
+          <select id="collCopies" onchange="renderCollection()" aria-label="按持有数量筛选">
+            <option value="">全部数量</option><option value="duplicate">仅重复卡</option><option value="single">仅单张</option>
+          </select>
+          <select id="collSort" onchange="renderCollection()" aria-label="收藏排序">
+            <option value="value-desc">价值从高到低</option><option value="value-asc">价值从低到高</option><option value="count-desc">数量从多到少</option><option value="season-desc">赛季从新到旧</option><option value="name">名称排序</option>
+          </select>
+          <button id="batchModeBtn" class="btn btn-dim collection-batch-toggle" type="button" onclick="toggleCollectionBatchMode()">☑ 批量管理</button>
+        </div>
+        <div id="collectionBatchActions" class="collection-batch-actions hidden">
+          <button class="btn btn-dim" type="button" onclick="selectFilteredCollection()">选择当前筛选</button>
+          <button class="btn btn-dim" type="button" onclick="clearCollectionSelection()">清空选择</button>
+          <select id="batchSellMode" onchange="updateBatchSaleSummary()" aria-label="批量出售数量">
+            <option value="extras">出售重复卡（每种保留 1 张）</option>
+            <option value="one">每种出售 1 张</option>
+            <option value="all">全部出售</option>
+          </select>
+          <span id="batchSaleSummary" class="batch-sale-summary">尚未选择卡牌</span>
+          <button id="batchSellBtn" class="btn btn-primary" type="button" onclick="sellSelectedCollection()" disabled>批量出售</button>
+        </div>
+      </div>
+      <div id="collection" class="card-grid"></div>
+    </section>
+  </div>
+
+  <!-- ========== 升级 ========== -->
+  <div class="page" id="page-upgrade">
+    <div class="upgrade-grid" id="upgrades"></div>
+  </div>
+
+  <!-- ========== 资讯 ========== -->
+  <div class="page" id="page-news">
+    <section class="panel" id="rumor-panel">
+      <h2>📢 论坛风声 <span class="h2-sub">传闻未必成真 · 明天见分晓</span></h2>
+      <div id="rumors"></div>
+    </section>
+    <section class="panel" id="log-panel">
+      <h2>📰 市场动态 <span class="h2-sub">最新在前</span></h2>
+      <div id="log"></div>
+    </section>
+    <section class="panel" id="trade-panel">
+      <h2>🧾 我的交易 <span class="h2-sub">最新在前</span></h2>
+      <div id="trades"></div>
+    </section>
+  </div>
+</main>
+
+<div id="cardDetailModal" class="modal card-detail-modal hidden" onclick="handleCardDetailClick(event)" role="dialog" aria-modal="true" aria-label="卡牌详情">
+  <div class="card-detail-shell">
+    <button class="card-detail-close" type="button" onclick="closeCardDetail()" aria-label="关闭卡牌详情">×</button>
+    <div id="cardDetailContent" class="card-detail-content"></div>
+    <div class="card-detail-hint">点击空白处或按 Esc 关闭</div>
+  </div>
+</div>
+
+<div id="packModal" class="modal hidden" onclick="handlePackModalClick(event)">
+  <div id="packOpening" class="pack-opening hidden">
+    <div class="opening-stage">
+      <div class="preview-cards" aria-hidden="true">
+        <i></i><i></i><i></i>
+      </div>
+      <div class="booster-pack opening-pack pack-kind-standard" id="openingPackVisual">
+        <div class="pack-face">
+          <span class="pack-brand">TCG TYCOON</span>
+          <span class="pack-emblem">✦</span>
+          <b id="openingPackName">赛季补充包</b>
+          <small id="openingPackSeason">SEASON 1</small>
+          <span class="pack-count" id="openingPackCount">3 CARDS</span>
+        </div>
+        <div class="pack-crimp pack-crimp-bottom"></div>
+        <div class="pack-tear-flap">
+          <div class="pack-crimp pack-crimp-top"></div>
+          <div class="tear-flap-foil"></div>
+        </div>
+        <div class="tear-line"></div>
+      </div>
+    </div>
+    <div class="opening-hint">撕开卡包… <span>点击可跳过</span></div>
+  </div>
+  <div id="packResults" class="pack-results hidden">
+    <div class="pack-title" id="packResultTitle">✨ 开包结果 ✨</div>
+    <div id="packCards" class="pack-cards"></div>
+    <div class="pack-hint">点击任意处收下卡牌</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="cards.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

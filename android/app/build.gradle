@@ -1,0 +1,30 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.shjaliq.tcgmvp'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'com.shjaliq.tcgmvp'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    sourceSets {
+        main.assets.srcDir layout.buildDirectory.dir('generated/webAssets')
+    }
+}
+
+def syncWebAssets = tasks.register('syncWebAssets', Sync) {
+    from(rootProject.file('..')) {
+        include 'index.html', 'style.css', 'cards.js', 'game.js', 'assets/cards/**'
+    }
+    into(layout.buildDirectory.dir('generated/webAssets'))
+}
+
+tasks.named('preBuild').configure {
+    dependsOn syncWebAssets
+}
