@@ -72,7 +72,8 @@ header {
   padding: 12px 20px 0;
 }
 .header-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-h1 { font-size: 20px; color: var(--ink); letter-spacing: .5px; }
+h1 { display: flex; align-items: center; gap: 7px; font-size: 20px; color: var(--ink); letter-spacing: .5px; }
+.brand-mark { width: 28px; height: 28px; object-fit: contain; flex: 0 0 auto; }
 .slogan { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
 .stats { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
 .stats span {
@@ -1442,6 +1443,7 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 @media (max-width: 560px) {
+  .brand-mark { width: 25px; height: 25px; }
   .nav-shell { margin-left: -20px; margin-right: -20px; }
   #nav { margin-top: 10px; padding-left: 8px; padding-right: 34px; scrollbar-width: none; scroll-behavior: smooth; }
   #nav::-webkit-scrollbar { display: none; }

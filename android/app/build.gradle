@@ -20,7 +20,7 @@ android {
 
 def syncWebAssets = tasks.register('syncWebAssets', Sync) {
     from(rootProject.file('..')) {
-        include 'index.html', 'style.css', 'cards.js', 'game.js', 'assets/cards/**'
+        include 'index.html', 'style.css', 'cards.js', 'game.js', 'assets/brand-mark.png', 'assets/cards/**'
     }
     into(layout.buildDirectory.dir('generated/webAssets'))
 }

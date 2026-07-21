@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
         settings.setDisplayZoomControls(false);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        settings.setBlockNetworkLoads(true);
 
         setContentView(webView);
         webView.loadUrl("file:///android_asset/index.html");
