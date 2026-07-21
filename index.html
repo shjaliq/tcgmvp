@@ -32,17 +32,21 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
       <div class="save-hint">💾 自动存档已开启</div>
     </div>
   </div>
-  <nav id="nav">
-    <a href="#/home" data-route="home">🏠 总览</a>
-    <a href="#/shop" data-route="shop">🎁 开包</a>
-    <a href="#/market" data-route="market">🏪 市场</a>
-    <a href="#/private" data-route="private">🤝 私下交易</a>
-    <a href="#/commission" data-route="commission">📋 委托</a>
-    <a href="#/achievements" data-route="achievements">🏆 成就</a>
-    <a href="#/collection" data-route="collection">🗃️ 收藏</a>
-    <a href="#/upgrade" data-route="upgrade">🚀 升级</a>
-    <a href="#/news" data-route="news">📰 资讯</a>
-  </nav>
+  <div class="nav-shell" id="navShell">
+    <nav id="nav">
+      <a href="#/home" data-route="home">🏠 总览</a>
+      <a href="#/shop" data-route="shop">🎁 开包</a>
+      <a href="#/market" data-route="market">🏪 市场</a>
+      <a href="#/private" data-route="private">🤝 私下交易</a>
+      <a href="#/commission" data-route="commission">📋 委托</a>
+      <a href="#/achievements" data-route="achievements">🏆 成就</a>
+      <a href="#/collection" data-route="collection">🗃️ 收藏</a>
+      <a href="#/upgrade" data-route="upgrade">🚀 升级</a>
+      <a href="#/news" data-route="news">📰 资讯</a>
+    </nav>
+    <button class="nav-scroll-cue" id="navScrollCue" type="button" onclick="scrollNavForward()" aria-label="查看更多导航">›</button>
+    <div class="nav-swipe-hint" id="navSwipeHint">← 左右滑动查看更多页面 →</div>
+  </div>
 </header>
 
 <main>

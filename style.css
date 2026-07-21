@@ -95,6 +95,8 @@ h1 { font-size: 20px; color: var(--ink); letter-spacing: .5px; }
   border-top: 1px solid var(--border);
   overflow-x: auto;
 }
+.nav-shell { position: relative; }
+.nav-scroll-cue, .nav-swipe-hint { display: none; }
 #nav a {
   color: var(--ink-2);
   text-decoration: none;
@@ -1440,6 +1442,26 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 @media (max-width: 560px) {
+  .nav-shell { margin-left: -20px; margin-right: -20px; }
+  #nav { margin-top: 10px; padding-left: 8px; padding-right: 34px; scrollbar-width: none; scroll-behavior: smooth; }
+  #nav::-webkit-scrollbar { display: none; }
+  #nav a { padding-left: 12px; padding-right: 12px; }
+  .nav-scroll-cue {
+    position: absolute; z-index: 4; right: 0; top: 1px; bottom: 0;
+    width: 42px; display: grid; place-items: center;
+    border: 0; color: var(--ink); background: linear-gradient(90deg, transparent, var(--panel) 48%);
+    font: 300 28px/1 sans-serif; cursor: pointer; opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  .nav-scroll-cue.visible { opacity: 1; pointer-events: auto; animation: navCuePulse 1.4s ease-in-out 2; }
+  .nav-swipe-hint {
+    position: absolute; z-index: 12; left: 50%; top: calc(100% + 8px); transform: translate(-50%, -5px);
+    display: block; padding: 7px 12px; border-radius: 16px; white-space: nowrap;
+    color: #fff; background: rgba(32,36,43,.94); box-shadow: 0 5px 16px rgba(0,0,0,.25);
+    font-size: 11px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  .nav-swipe-hint.show { opacity: 1; transform: translate(-50%, 0); }
+  @keyframes navCuePulse { 50% { padding-left: 8px; } }
   .shop-hero { margin-top: 12px; }
   .pack-catalog { grid-template-columns: 1fr; }
   .pack-offer-info p { min-height: 0; }
@@ -1469,4 +1491,5 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .shop-pack, .pack-face::after, .opening-hint { animation: none; }
+  .nav-scroll-cue { animation: none !important; }
 }

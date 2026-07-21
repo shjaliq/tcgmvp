@@ -15,6 +15,7 @@ const BASE_MARKET_SELL_RATE = 0.80;  // 公开市场基础回收率 80%
 const SAVE_KEY = 'tcgmvp_save_v1';
 const CAREER_KEY = 'tcgmvp_career_v1';
 const PACK_ANIMATION_KEY = 'tcgmvp_skip_pack_animation';
+const NAV_HINT_KEY = 'tcgmvp_mobile_nav_hint_seen';
 
 const PACK_TYPES = {
   standard: { name: '标准卡包', face: '赛季补充包', price: 60, size: 3, unlockLv: 0, css: 'standard', desc: '3 张当季随机卡牌' },
@@ -732,12 +733,65 @@ function renderRoute() {
   const r = currentRoute();
   document.querySelectorAll('.page').forEach(p =>
     p.classList.toggle('active', p.id === 'page-' + r));
-  document.querySelectorAll('#nav a').forEach(a =>
-    a.classList.toggle('active', a.dataset.route === r));
+  let activeTab = null;
+  document.querySelectorAll('#nav a').forEach(a => {
+    const active = a.dataset.route === r;
+    a.classList.toggle('active', active);
+    if (active) activeTab = a;
+  });
+  if (activeTab && typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches) {
+    requestAnimationFrame(() => activeTab.scrollIntoView({
+      behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'nearest', inline: 'center',
+    }));
+  }
+  requestAnimationFrame(updateNavScrollCue);
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', renderRoute);
+}
+
+function updateNavScrollCue() {
+  const nav = $('nav');
+  const cue = $('navScrollCue');
+  if (!nav || !cue) return;
+  const overflowing = nav.scrollWidth > nav.clientWidth + 2;
+  const atEnd = nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 3;
+  cue.classList.toggle('visible', overflowing && !atEnd);
+}
+
+function dismissNavSwipeHint() {
+  const hint = $('navSwipeHint');
+  if (hint) hint.classList.remove('show');
+  try { localStorage.setItem(NAV_HINT_KEY, '1'); } catch (e) {}
+}
+
+function scrollNavForward() {
+  const nav = $('nav');
+  if (!nav) return;
+  nav.scrollBy({ left: Math.max(180, nav.clientWidth * 0.7), behavior: 'smooth' });
+  dismissNavSwipeHint();
+}
+
+function setupMobileNavGuide() {
+  const nav = $('nav');
+  if (!nav) return;
+  nav.addEventListener('scroll', () => {
+    updateNavScrollCue();
+    if (nav.scrollLeft > 8) dismissNavSwipeHint();
+  }, { passive: true });
+  window.addEventListener('resize', updateNavScrollCue);
+  requestAnimationFrame(() => {
+    updateNavScrollCue();
+    if (typeof matchMedia !== 'function' || !matchMedia('(max-width: 560px)').matches || nav.scrollWidth <= nav.clientWidth + 2) return;
+    let seen = false;
+    try { seen = localStorage.getItem(NAV_HINT_KEY) === '1'; } catch (e) {}
+    if (!seen) {
+      $('navSwipeHint').classList.add('show');
+      setTimeout(dismissNavSwipeHint, 4500);
+    }
+  });
 }
 
 // ==================== 升级 ====================
@@ -2438,6 +2492,7 @@ function init() {
   checkAchievements();
   renderAll();
   renderRoute();
+  setupMobileNavGuide();
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !$('cardDetailModal').classList.contains('hidden')) closeCardDetail();
   });
