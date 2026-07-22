@@ -123,11 +123,11 @@ const UPGRADES = {
   },
   promo: {
     name: '宣传推广', icon: '📣', maxLv: 5, baseCost: 90, costMult: 1.6,
-    desc: '打广告招揽客人，每级让每天来访的客人 +1 位',
+    desc: '打广告招揽客人，每级让每天来访的 NPC +1 位，并提高 13% 店内成交机会',
   },
   intel: {
     name: '情报信源', icon: '🕵️', maxLv: 3, baseCost: 100, costMult: 1.6,
-    desc: '发展情报网络，每级让每天传闻 +1 条；Lv.2 起每天保底一条「内部线人」，并在行情板标注削弱风险卡',
+    desc: '发展情报网络；除传闻与削弱标注外，逐级提供店内需求、成交率区间和精确成交率',
   },
   packs: {
     name: '卡包经营许可', icon: '🎫', maxLv: 4, baseCost: 120, costMult: 1.55,
@@ -135,9 +135,20 @@ const UPGRADES = {
   },
   broker: {
     name: '市场渠道', icon: '🏦', maxLv: 5, baseCost: 90, costMult: 1.5,
-    desc: '优化公开市场交易渠道，每级降低 2% 买入加价并提高 3% 卖出回收率',
+    desc: '优化交易渠道，每级降低 2% 公开买入加价、提高 3%回收率，并减少 1%店内运营成本',
   },
 };
+
+const STORE_LEVELS = [
+  { name: '收藏小摊', icon: '🧺', cost: 0,     worth: 0,     season: 1, upgrades: 0,  slots: 2,  customers: 1 },
+  { name: '街边卡店', icon: '🏪', cost: 400,   worth: 800,   season: 1, upgrades: 3,  slots: 4,  customers: 1 },
+  { name: '人气店铺', icon: '✨', cost: 1200,  worth: 2500,  season: 2, upgrades: 7,  slots: 6,  customers: 2 },
+  { name: '区域名店', icon: '🏬', cost: 3500,  worth: 8000,  season: 3, upgrades: 12, slots: 8,  customers: 2 },
+  { name: '城市旗舰店', icon: '🌆', cost: 9000, worth: 25000, season: 4, upgrades: 18, slots: 10, customers: 3 },
+  { name: '连锁品牌', icon: '👑', cost: 24000, worth: 70000, season: 6, upgrades: 24, slots: 12, customers: 4 },
+];
+
+const RETAIL_PRICE_OPTIONS = [90, 100, 110, 125, 140, 160];
 
 // ==================== 工具 ====================
 const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
@@ -469,6 +480,9 @@ const state = {
   trades: [],       // [{t, c}] 我的交易
   history: [],      // [{d, v}] 每日身价
   upgrades: { supply: 0, promo: 0, intel: 0, packs: 0, broker: 0 },
+  storeLevel: 0,
+  retailListings: [], // [{key, pricePct}]：从收藏中陈列一张，成交后扣除
+  lastRetailReport: { day: 0, sales: 0, gross: 0, net: 0 },
   packsBought: 0,   // 今日已购卡包数
   packTypeBought: {}, // 今日各特殊卡包购买数
   reprint: null,    // {season, daysLeft} 复刻活动
@@ -533,6 +547,9 @@ function saveGame() {
       trades: state.trades,
       history: state.history,
       upgrades: state.upgrades,
+      storeLevel: state.storeLevel,
+      retailListings: state.retailListings,
+      lastRetailReport: state.lastRetailReport,
       packsBought: state.packsBought,
       packTypeBought: state.packTypeBought,
       reprint: state.reprint,
@@ -669,6 +686,14 @@ function loadGame() {
       supply: 0, promo: 0, intel: 0, packs: 0, broker: 0,
       ...(d.upgrades || {}),
     };
+    state.storeLevel = clamp(Number(d.storeLevel) || 0, 0, STORE_LEVELS.length - 1);
+    state.retailListings = (Array.isArray(d.retailListings) ? d.retailListings : [])
+      .filter(l => l && typeof l.key === 'string' && RETAIL_PRICE_OPTIONS.includes(Number(l.pricePct)))
+      .map(l => ({ key: l.key, pricePct: Number(l.pricePct) }))
+      .slice(0, STORE_LEVELS[state.storeLevel].slots);
+    state.lastRetailReport = d.lastRetailReport && typeof d.lastRetailReport === 'object'
+      ? { day: 0, sales: 0, gross: 0, net: 0, ...d.lastRetailReport }
+      : { day: 0, sales: 0, gross: 0, net: 0 };
     state.packsBought = d.packsBought || 0;
     state.packTypeBought = d.packTypeBought || {};
     state.reprint = d.reprint || null;
@@ -808,8 +833,10 @@ function upgradeCost(key) {
 
 function upgradeEffect(key, lv) {
   if (key === 'supply') return `每日共享货源 ${3 + lv} 包`;
-  if (key === 'promo') return `每日 ${Math.min(1 + lv, NPC_PROFILES.length)} 位客人`;
-  if (key === 'intel') return `每日额外传闻 +${lv}` + (lv >= 2 ? ' · 每日保底「内部线人」 · 行情板标注削弱风险' : '');
+  if (key === 'promo') return `每日 ${Math.min(1 + lv, NPC_PROFILES.length)} 位 NPC · 店内成交机会 +${lv * 13}%`;
+  if (key === 'intel') return `每日额外传闻 +${lv}`
+    + (lv >= 1 ? ` · 店内${['', '需求趋势', '成交率区间', '精确成交率'][lv]}` : '')
+    + (lv >= 2 ? ' · 每日保底「内部线人」 · 行情板标注削弱风险' : '');
   if (key === 'packs') {
     const unlocked = ['标准卡包', '优惠标准包', '大包', '赛季主题包', '经典纪念包'].slice(0, lv + 1);
     return `可售：${unlocked.join('、')}`;
@@ -817,7 +844,7 @@ function upgradeEffect(key, lv) {
   if (key === 'broker') {
     const buyFee = Math.round((marketBuyMarkupAt(lv) - 1) * 100);
     const sellRate = Math.round(marketSellRateAt(lv) * 100);
-    return `买入加价 ${buyFee}% · 卖出回收 ${sellRate}%`;
+    return `买入加价 ${buyFee}% · 卖出回收 ${sellRate}% · 店内实收 ${Math.round((0.92 + Math.min(5, lv) * 0.01) * 100)}%`;
   }
   return '';
 }
@@ -839,6 +866,128 @@ function buyUpgrade(key) {
   if (key === 'broker') refreshMarket();
   addLog(`🚀 【${u.name}】升到 Lv.${state.upgrades[key]}：${upgradeEffect(key, state.upgrades[key])}`, 'good');
   renderAll();
+}
+
+// ==================== 店铺经营 ====================
+const totalUpgradeLevels = () => Object.values(state.upgrades).reduce((sum, lv) => sum + lv, 0);
+const storeDef = () => STORE_LEVELS[state.storeLevel];
+const retailNetRate = () => Math.min(0.97, 0.92 + state.upgrades.broker * 0.01);
+
+function storeUpgradeBlockers(level = state.storeLevel + 1) {
+  const def = STORE_LEVELS[level];
+  if (!def) return [];
+  const blockers = [];
+  if (curSeason() < def.season) blockers.push(`到达 S${def.season}`);
+  if (netWorth() < def.worth) blockers.push(`身价达到 ¥${def.worth}`);
+  if (totalUpgradeLevels() < def.upgrades) blockers.push(`经营升级合计 ${def.upgrades} 级`);
+  if (state.money < def.cost) blockers.push(`准备建设费 ¥${def.cost}`);
+  return blockers;
+}
+
+function upgradeStore() {
+  const nextLevel = state.storeLevel + 1;
+  const def = STORE_LEVELS[nextLevel];
+  if (!def) return;
+  const blockers = storeUpgradeBlockers(nextLevel);
+  if (blockers.length) { flash(`暂不能扩建：${blockers.join(' · ')}`); return; }
+  state.money -= def.cost;
+  state.storeLevel = nextLevel;
+  addLog(`🏗️ 店铺扩建完成：正式升级为【${def.name}】，陈列位增至 ${def.slots} 个`, 'good');
+  renderAll();
+}
+
+function cleanRetailListings() {
+  const seen = new Set();
+  state.retailListings = state.retailListings.filter(l => {
+    if (!l || seen.has(l.key) || !(state.collection[l.key] > 0)) return false;
+    const { id, s } = parseKey(l.key);
+    if (!cardPool[id] || !Number.isFinite(s)) return false;
+    seen.add(l.key);
+    return true;
+  }).slice(0, storeDef().slots);
+}
+
+function addRetailListing() {
+  cleanRetailListings();
+  const select = $('retailCardSelect');
+  const price = $('retailPriceSelect');
+  const key = select && select.value;
+  const pricePct = Number(price && price.value);
+  if (!key || !(state.collection[key] > 0)) { flash('先选择一张要陈列的卡'); return; }
+  if (state.retailListings.length >= storeDef().slots) { flash('陈列位已经满了，先撤下一张或扩建店铺'); return; }
+  if (state.retailListings.some(l => l.key === key)) { flash('这张卡已经在陈列了'); return; }
+  state.retailListings.push({ key, pricePct: RETAIL_PRICE_OPTIONS.includes(pricePct) ? pricePct : 110 });
+  addLog(`🛍️ ${cardPool[parseKey(key).id].name} 已上架店内陈列`, 'good');
+  renderAll();
+}
+
+function removeRetailListing(index) {
+  if (!state.retailListings[index]) return;
+  state.retailListings.splice(index, 1);
+  renderAll();
+}
+
+function setRetailPrice(index, pricePct) {
+  if (!state.retailListings[index] || !RETAIL_PRICE_OPTIONS.includes(Number(pricePct))) return;
+  state.retailListings[index].pricePct = Number(pricePct);
+  renderAll();
+}
+
+function retailPriceFactor(pct) {
+  const table = { 90: 1.6, 100: 1.25, 110: 1, 125: 0.68, 140: 0.38, 160: 0.15 };
+  return table[pct] || 1;
+}
+
+function retailSaleChance(listing) {
+  const { id, s } = parseKey(listing.key);
+  const t = cardPool[id];
+  const heat = clamp(hiddenHeat(t), 0, 160);
+  const heatFactor = 0.72 + heat / 250;
+  const promoFactor = 1 + state.upgrades.promo * 0.13;
+  const themeFactor = state.themes.includes(t.archetype) ? 1.12 : 1;
+  const hotFactor = t.archetype === hottestArchetype() ? 1.12 : 1;
+  const seasonFactor = s === curSeason() ? 1.08 : isRotated(s) ? 0.72 : 0.94;
+  return clamp(0.32 * retailPriceFactor(listing.pricePct) * heatFactor * promoFactor * themeFactor * hotFactor * seasonFactor, 0.03, 0.92);
+}
+
+function retailChanceText(listing) {
+  const chance = retailSaleChance(listing);
+  if (state.upgrades.intel <= 0) return '成交率尚未评估';
+  if (state.upgrades.intel === 1) return `需求${chance >= 0.45 ? '旺盛' : chance >= 0.25 ? '平稳' : '冷淡'}`;
+  if (state.upgrades.intel === 2) {
+    const low = Math.floor(chance * 10) * 10;
+    return `预计成交率 ${low}%～${Math.min(100, low + 10)}%`;
+  }
+  return `预计成交率 ${Math.round(chance * 100)}%`;
+}
+
+function processRetailSales() {
+  cleanRetailListings();
+  const capacity = storeDef().customers + Math.floor(state.upgrades.promo / 2);
+  const shuffled = [...state.retailListings].sort(() => Math.random() - 0.5);
+  const sold = [];
+  let gross = 0;
+  for (const listing of shuffled) {
+    if (sold.length >= capacity || Math.random() >= retailSaleChance(listing)) continue;
+    if (!(state.collection[listing.key] > 0)) continue;
+    const { id, s } = parseKey(listing.key);
+    const price = Math.max(1, Math.round(cardValue(cardPool[id], s) * listing.pricePct / 100));
+    state.collection[listing.key]--;
+    if (state.collection[listing.key] <= 0) delete state.collection[listing.key];
+    gross += price;
+    sold.push({ ...listing, name: cardPool[id].name, price });
+  }
+  const soldKeys = new Set(sold.map(x => x.key));
+  state.retailListings = state.retailListings.filter(l => !soldKeys.has(l.key));
+  const net = Math.round(gross * retailNetRate());
+  if (sold.length) {
+    state.money += net;
+    recordProgress('cardsSold', sold.length);
+    addLog(`🛍️ 店内零售成交 ${sold.length} 张，扣除运营成本后收入 ¥${net}`, 'good');
+    addTrade(`店内售出 ${sold.map(x => x.name).join('、')}，回款 ¥${net}`, 'good');
+  }
+  state.lastRetailReport = { day: state.day, sales: sold.length, gross, net };
+  return state.lastRetailReport;
 }
 
 // ==================== 委托 ====================
@@ -1832,6 +1981,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
       <div><small>藏品估值</small><strong class="${collectionValue >= snapshot.collectionValue ? 'up' : 'down'}">${signedMoney(collectionValue - snapshot.collectionValue)}</strong><em>现值 ¥${collectionValue}</em></div>
       <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
     </div>
+    <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}` : '今日没有顾客成交'}</b></div>
     ${seasonExtras}
     <section class="settlement-market">
       <div class="settlement-section-title">行情摘要</div>
@@ -1864,6 +2014,7 @@ function nextDay() {
     cardValues: cardPool.map(t => cardValue(t, prevSeason)),
     oldLogs: new Set(state.log),
   };
+  processRetailSales();
   state.day++;
   state.packsBought = 0;
   state.packTypeBought = {};
@@ -2024,6 +2175,71 @@ function renderHeader() {
   }
 }
 
+function renderStorefront() {
+  cleanRetailListings();
+  const def = storeDef();
+  const next = STORE_LEVELS[state.storeLevel + 1];
+  const blockers = next ? storeUpgradeBlockers(state.storeLevel + 1) : [];
+  const listed = new Set(state.retailListings.map(l => l.key));
+  const available = Object.keys(state.collection)
+    .filter(k => state.collection[k] > 0 && !listed.has(k))
+    .map(k => ({ k, ...parseKey(k) }))
+    .sort((a, b) => cardValue(cardPool[b.id], b.s) - cardValue(cardPool[a.id], a.s));
+  const shelfCards = state.retailListings.map((l, i) => {
+    const { id, s } = parseKey(l.key);
+    const t = cardPool[id];
+    const art = artFor(t);
+    return `<button class="store-shelf-card rar-${t.rarity}" type="button" onclick="openCardDetail(${id}, ${s})" title="${t.name} · 标价 ${l.pricePct}%">
+      <img src="${art}" alt=""><span>¥${Math.round(cardValue(t, s) * l.pricePct / 100)}</span></button>`;
+  }).join('');
+  const emptySlots = Array.from({ length: Math.max(0, def.slots - state.retailListings.length) }, () => '<span class="store-empty-slot">＋</span>').join('');
+  const rows = state.retailListings.map((l, i) => {
+    const { id, s } = parseKey(l.key);
+    const t = cardPool[id];
+    const value = cardValue(t, s);
+    return `<div class="retail-row">
+      <div><b>${t.name}</b><small>S${s} · 行情 ¥${value} · ${retailChanceText(l)}</small></div>
+      <select onchange="setRetailPrice(${i}, this.value)" aria-label="${t.name}店内售价">
+        ${RETAIL_PRICE_OPTIONS.map(p => `<option value="${p}" ${p === l.pricePct ? 'selected' : ''}>${p}% · ¥${Math.round(value * p / 100)}</option>`).join('')}
+      </select>
+      <button class="btn btn-dim" type="button" onclick="removeRetailListing(${i})">撤下</button>
+    </div>`;
+  }).join('') || '<div class="retail-empty">货架还是空的，先从收藏中选一张卡试卖吧</div>';
+  const nextText = !next
+    ? '<span class="store-maxed">已建成最高级店铺</span>'
+    : `<button class="btn btn-primary" type="button" onclick="upgradeStore()" ${blockers.length ? 'disabled' : ''}>扩建为${next.name} · ¥${next.cost}</button>
+      <small>${blockers.length ? `还需：${blockers.join(' · ')}` : `条件已满足 · 新增 ${next.slots - def.slots} 个陈列位`}</small>`;
+  const report = state.lastRetailReport && state.lastRetailReport.day
+    ? `上次营业：售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}`
+    : '尚无营业记录 · 进入下一天后顾客会尝试购买';
+  $('storefront').innerHTML = `<div class="storefront-top">
+      <div><span class="store-eyebrow">STORE LEVEL ${state.storeLevel}</span><h2>${def.icon} ${def.name}</h2><p>${report}</p></div>
+      <div class="store-upgrade-action">${nextText}</div>
+    </div>
+    <div class="store-scene store-level-${state.storeLevel}" style="--supply-lv:${state.upgrades.supply};--promo-lv:${state.upgrades.promo};--intel-lv:${state.upgrades.intel};--packs-lv:${state.upgrades.packs};--broker-lv:${state.upgrades.broker}">
+      <button class="store-zone store-sign" type="button" onclick="location.hash='#/upgrade'">TCG TYCOON<small>${def.name}</small></button>
+      <button class="store-zone store-supply" type="button" onclick="location.hash='#/shop'" title="卡包货源 Lv.${state.upgrades.supply}"><i></i><i></i><b>货源 Lv.${state.upgrades.supply}</b></button>
+      <button class="store-zone store-promo" type="button" onclick="location.hash='#/private'" title="宣传推广 Lv.${state.upgrades.promo}">今日来客<br><b>${dailyGuestCount()} 位</b></button>
+      <button class="store-zone store-intel" type="button" onclick="location.hash='#/news'" title="情报信源 Lv.${state.upgrades.intel}"><span>MARKET</span><b>${state.upgrades.intel ? '行情在线' : '等待接入'}</b></button>
+      <button class="store-zone store-license" type="button" onclick="location.hash='#/shop'" title="卡包经营许可 Lv.${state.upgrades.packs}"><span>PACK WALL</span><b>${state.upgrades.packs + 1} 种商品</b></button>
+      <button class="store-zone store-counter" type="button" onclick="location.hash='#/market'" title="市场渠道 Lv.${state.upgrades.broker}"><span>收银台</span><b>渠道 Lv.${state.upgrades.broker}</b></button>
+      <div class="store-crowd crowd-${Math.min(5, state.upgrades.promo)}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="store-shelves" aria-label="店内陈列">${shelfCards}${emptySlots}</div>
+    </div>
+    <div class="retail-manager">
+      <div class="retail-manager-head"><div><h3>店内陈列</h3><p>${state.retailListings.length}/${def.slots} 个陈列位 · 成交扣除 ${Math.round((1 - retailNetRate()) * 100)}% 运营成本</p></div></div>
+      <div class="retail-add">
+        <select id="retailCardSelect" aria-label="选择陈列卡牌"><option value="">选择收藏中的卡牌…</option>${available.map(e => {
+          const t = cardPool[e.id];
+          return `<option value="${e.k}">${t.name} · S${e.s} · ×${state.collection[e.k]} · ¥${cardValue(t, e.s)}</option>`;
+        }).join('')}</select>
+        <select id="retailPriceSelect" aria-label="设置陈列售价">${RETAIL_PRICE_OPTIONS.map(p => `<option value="${p}" ${p === 110 ? 'selected' : ''}>售价 ${p}%</option>`).join('')}</select>
+        <button class="btn btn-primary" type="button" onclick="addRetailListing()" ${!available.length || state.retailListings.length >= def.slots ? 'disabled' : ''}>上架陈列</button>
+      </div>
+      <div class="retail-list">${rows}</div>
+    </div>`;
+}
+
 function renderHome() {
   const totalCards = Object.values(state.collection).reduce((a, b) => a + b, 0);
   const hot = hottestArchetype();
@@ -2031,6 +2247,7 @@ function renderHome() {
   $('home-networth').textContent = '¥' + netWorth();
   $('home-coll').textContent = `${Object.keys(state.collection).length} 种 / ${totalCards} 张`;
   $('home-hot').textContent = `${ARCHETYPES[hot].emoji} ${ARCHETYPES[hot].name}`;
+  renderStorefront();
   $('home-rumors').innerHTML = rumorsHTML();
   $('home-log').innerHTML = state.log.slice(-6).reverse().map(logLineHTML).join('') || '<div class="empty">暂无动态</div>';
 }
