@@ -1170,6 +1170,25 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   gap: 8px;
 }
 .market-grid .listing { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; }
+.market-services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.market-service-panel { min-width: 0; }
+.service-help { margin: -3px 0 12px; color: var(--ink-3); font-size: 10px; line-height: 1.5; }
+.service-locked, .service-empty, .service-cap {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 76px; padding: 14px; border: 1px dashed var(--border); border-radius: 7px;
+  color: var(--ink-3); background: var(--bg); text-align: center; font-size: 10px;
+}
+.service-locked b { color: var(--ink-2); font-size: 12px; }
+.service-active-list, .service-candidates { display: flex; flex-direction: column; gap: 6px; }
+.service-candidates { max-height: 420px; padding-right: 3px; overflow-y: auto; }
+.service-active-list { margin-bottom: 12px; }
+.service-active-list .listing, .service-candidates .listing { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; }
+.service-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 9px 0 7px; font-size: 11px; }
+.service-picker-head label { display: flex; align-items: center; gap: 5px; color: var(--ink-3); font-size: 9px; }
+.service-picker-head select, .relationship-actions select { padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--ink-2); background: var(--panel); font-size: 9px; }
+.service-status { display: flex; flex-direction: column; align-items: flex-end; color: var(--gold); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.service-status small { margin-top: 2px; color: var(--ink-3); font-size: 8px; font-weight: 400; }
+.service-active-list .btn, .service-candidates .btn { padding: 5px 8px; font-size: 9px; }
 .private-trade-head { border-top: 2px solid color-mix(in srgb, var(--gold) 58%, transparent); }
 .private-help { margin: -3px 0 14px; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
 .private-guests {
@@ -1190,6 +1209,15 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   border-color: color-mix(in srgb, var(--gold) 72%, var(--border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 14%, transparent);
 }
+.npc-relationship { margin: 0 0 10px; padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--blue) 20%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--blue) 4%, var(--panel)); }
+.npc-relationship > div:first-child { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 9px; }
+.npc-relationship b, .npc-relationship strong { color: var(--blue); }
+.npc-relationship > i { display: block; height: 4px; margin: 5px 0; overflow: hidden; border-radius: 2px; background: var(--track); }
+.npc-relationship > i em { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #8dbbe7); }
+.npc-relationship > small { color: var(--ink-3); font-size: 8px; }
+.relationship-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.relationship-actions .btn { padding: 4px 7px; font-size: 8px; }
+.relationship-actions label { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--ink-3); font-size: 8px; }
 .dealer-identity { flex: 1; min-width: 0; }
 .dealer-limits { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--ink-3); font-size: 9px; white-space: nowrap; }
 .dealer-patience { color: var(--gold); letter-spacing: 1px; }
@@ -1822,7 +1850,7 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   .collection-batch-actions > * { flex: 1 1 auto; }
   .collection-batch-actions select { flex-basis: 100%; }
   .batch-sale-summary { min-width: 100%; text-align: left; }
-  .market-grid, .private-guests { grid-template-columns: 1fr; }
+  .market-grid, .private-guests, .market-services { grid-template-columns: 1fr; }
   .private-inventory-head { align-items: stretch; flex-direction: column; }
   .private-inventory-head select { width: 100%; }
   .haggle-row { flex-wrap: wrap; }

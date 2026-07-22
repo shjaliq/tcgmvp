@@ -28,6 +28,8 @@ const NPC_QUALITY = [
 const MARKET_SIZE = 12;
 const BASE_MARKET_BUY_MARKUP = 1.15; // 公开市场基础买入加价 15%
 const BASE_MARKET_SELL_RATE = 0.80;  // 公开市场基础回收率 80%
+const CONSIGN_PRICE_OPTIONS = [100, 115, 130, 150];
+const AUCTION_RESERVE_OPTIONS = [90, 110, 130];
 const SAVE_KEY = 'tcgmvp_save_v1';
 const CAREER_KEY = 'tcgmvp_career_v1';
 const PACK_ANIMATION_KEY = 'tcgmvp_skip_pack_animation';
@@ -54,6 +56,7 @@ const PATCH_CHANCE = 0.30;        // 每天出平衡补丁的概率
 
 const ROUTES = ['home', 'shop', 'market', 'private', 'commission', 'achievements', 'collection', 'upgrade', 'news'];
 const collectionView = { batchMode: false, selected: new Set() };
+const marketServiceUI = { consignPct: 115, reservePct: 110 };
 
 const COMMISSION_DIFFICULTIES = {
   normal:   { name: '普通', icon: '🟢', targetBase: 52, rewardMult: 0.9, repMult: 0.9,  repCap: 8 },
@@ -122,6 +125,9 @@ const CAREER_MILESTONE_GROUPS = [
   { key: 'archetypesMastered', icon: '🧩', name: '体系博物馆', unit: '套完整体系', tiers: [[1, 15], [5, 40], [10, 80]] },
   { key: 'specialCardsAcquired', icon: '🌈', name: '特效收藏家', unit: '张特效卡', tiers: [[1, 8], [10, 25], [50, 60]] },
   { key: 'premiumSpecialsAcquired', icon: '✍️', name: '顶级藏品', unit: '张签名/编号卡', tiers: [[1, 15], [5, 40], [20, 90]] },
+  { key: 'consignmentsSold', icon: '🏷️', name: '寄售经理', unit: '笔寄售', tiers: [[5, 8], [30, 25], [150, 60]] },
+  { key: 'auctionsSold', icon: '🔨', name: '拍卖行常客', unit: '场成交', tiers: [[1, 12], [10, 35], [50, 80]] },
+  { key: 'npcFriendships', icon: '💞', name: '收藏圈名人', unit: '位挚友', tiers: [[1, 12], [5, 35], [12, 75]] },
 ];
 
 const emptyProgressStats = () => ({
@@ -131,6 +137,7 @@ const emptyProgressStats = () => ({
   maxProfit: 0, reputationEarned: 0, reputationSpent: 0,
   coresAcquired: 0, urAcquired: 0, uniqueOwnedMax: 0, archetypesMastered: 0,
   specialCardsAcquired: 0, premiumSpecialsAcquired: 0,
+  consignmentsSold: 0, auctionsSold: 0, npcFriendships: 0,
 });
 
 const career = { stats: emptyProgressStats(), completed: {}, challenges: {}, masteredArchetypes: {}, points: 0 };
@@ -155,7 +162,7 @@ const UPGRADES = {
   },
   broker: {
     name: '市场渠道', icon: '🏦', maxLv: 5, baseCost: 90, costMult: 1.5,
-    desc: '优化交易渠道，每级降低 2% 公开买入加价、提高 3%回收率，并减少 1%店内运营成本',
+    desc: '优化交易渠道；Lv.2 解锁寄售，Lv.4 解锁特效卡拍卖，并逐级降低各渠道手续费',
   },
 };
 
@@ -573,6 +580,9 @@ const state = {
   cardLocks: {},    // 收藏保护：锁定后不参与自动上架和出售
   specialCards: [], // 独立特效卡实例 [{uid,id,s,finish,serial,source,locked}]
   market: [],       // [{id, s, price}]
+  consignments: [], // 普通卡寄售 [{id,s,askPct,daysLeft}]
+  auctions: [],     // 特效卡拍卖 [{card,reservePct,endDay,currentBid,bidders}]
+  lastMarketReport: { day: 0, consignSold: 0, consignNet: 0, auctionsSold: 0, auctionNet: 0 },
   dealers: [],      // 今日私下交易访客实例
   offers: [],       // [{dealerId, mode:'buy'|'sell', id, s, price, rounds}]
   rumors: [],       // [{kind, target, delta, src, chance}] 关于明天的传闻
@@ -602,6 +612,8 @@ const state = {
   reputation: 0,
   lifetimeReputation: 0,
   collectorHeat: 0,
+  npcRelationships: {}, // "profile:name" -> 信任、成交、预约目标
+  npcReservation: null,
   reputationUpgrades: { board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0, collectors: 0 },
   runStats: emptyProgressStats(),
   runStartWorth: 300,
@@ -614,6 +626,8 @@ function netWorth() {
     v += cardValue(cardPool[id], s) * state.collection[k];
   }
   v += state.specialCards.reduce((sum, card) => sum + specialValue(card), 0);
+  v += state.consignments.reduce((sum, item) => sum + cardValue(cardPool[item.id], item.s), 0);
+  v += state.auctions.reduce((sum, item) => sum + specialValue(item.card), 0);
   return v;
 }
 
@@ -649,6 +663,9 @@ function saveGame() {
       cardLocks: state.cardLocks,
       specialCards: state.specialCards,
       market: state.market,
+      consignments: state.consignments,
+      auctions: state.auctions,
+      lastMarketReport: state.lastMarketReport,
       dealers: state.dealers,
       offers: state.offers,
       rumors: state.rumors,
@@ -677,6 +694,8 @@ function saveGame() {
       reputation: state.reputation,
       lifetimeReputation: state.lifetimeReputation,
       collectorHeat: state.collectorHeat,
+      npcRelationships: state.npcRelationships,
+      npcReservation: state.npcReservation,
       reputationUpgrades: state.reputationUpgrades,
       runStats: state.runStats,
       runStartWorth: state.runStartWorth,
@@ -705,7 +724,8 @@ function loadCareer() {
 }
 
 function currentOwnedCards() {
-  return Object.values(state.collection).reduce((sum, n) => sum + n, 0) + state.specialCards.length;
+  return Object.values(state.collection).reduce((sum, n) => sum + n, 0)
+    + state.specialCards.length + state.consignments.length + state.auctions.length;
 }
 
 function checkAchievements() {
@@ -787,6 +807,15 @@ function loadGame() {
       c && cardPool[c.id] && SPECIAL_FINISHES[c.finish] && Number.isFinite(c.s))
       .map(c => ({ ...c, uid: c.uid || `sp-load-${Math.random().toString(36).slice(2)}`, locked: c.locked !== false }));
     state.market = (d.market || []).map(l => ({ ...l, s: l.s || 1 }));
+    state.consignments = (Array.isArray(d.consignments) ? d.consignments : [])
+      .filter(x => x && cardPool[x.id] && Number.isFinite(x.s))
+      .map(x => ({ ...x, askPct: CONSIGN_PRICE_OPTIONS.includes(Number(x.askPct)) ? Number(x.askPct) : 115, daysLeft: Math.max(1, Number(x.daysLeft) || 1) }));
+    state.auctions = (Array.isArray(d.auctions) ? d.auctions : [])
+      .filter(x => x && x.card && cardPool[x.card.id] && SPECIAL_FINISHES[x.card.finish])
+      .map(x => ({ ...x, reservePct: AUCTION_RESERVE_OPTIONS.includes(Number(x.reservePct)) ? Number(x.reservePct) : 110, endDay: Math.max(state.day + 1, Number(x.endDay) || state.day + 1), currentBid: Math.max(0, Number(x.currentBid) || 0), bidders: Math.max(0, Number(x.bidders) || 0) }));
+    state.lastMarketReport = d.lastMarketReport && typeof d.lastMarketReport === 'object'
+      ? { day: 0, consignSold: 0, consignNet: 0, auctionsSold: 0, auctionNet: 0, ...d.lastMarketReport }
+      : { day: 0, consignSold: 0, consignNet: 0, auctionsSold: 0, auctionNet: 0 };
     state.dealers = (Array.isArray(d.dealers) ? d.dealers : []).map(dealer => {
       const profile = NPC_PROFILES.find(p => p.key === dealer.profile);
       const quality = clamp(Number(dealer.quality) || 0, 0, NPC_QUALITY.length - 1);
@@ -840,6 +869,17 @@ function loadGame() {
     state.reputation = Math.max(0, d.reputation || 0);
     state.lifetimeReputation = Math.max(state.reputation, d.lifetimeReputation || 0);
     state.collectorHeat = Math.max(0, Number(d.collectorHeat) || 0);
+    state.npcRelationships = {};
+    for (const [key, rel] of Object.entries(d.npcRelationships && typeof d.npcRelationships === 'object' ? d.npcRelationships : {})) {
+      if (!rel || typeof rel !== 'object') continue;
+      state.npcRelationships[key] = {
+        trust: clamp(Number(rel.trust) || 0, 0, 60), deals: Math.max(0, Number(rel.deals) || 0),
+        haggles: Math.max(0, Number(rel.haggles) || 0),
+        targetArch: ARCHETYPES[rel.targetArch] ? rel.targetArch : pick(Object.keys(ARCHETYPES)),
+        wantedArch: ARCHETYPES[rel.wantedArch] ? rel.wantedArch : '', friendshipRecorded: !!rel.friendshipRecorded,
+      };
+    }
+    state.npcReservation = d.npcReservation && typeof d.npcReservation === 'object' ? d.npcReservation : null;
     state.reputationUpgrades = {
       board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0, collectors: 0,
       ...(d.reputationUpgrades || {}),
@@ -980,13 +1020,19 @@ function upgradeEffect(key, lv) {
   if (key === 'broker') {
     const buyFee = Math.round((marketBuyMarkupAt(lv) - 1) * 100);
     const sellRate = Math.round(marketSellRateAt(lv) * 100);
-    return `买入加价 ${buyFee}% · 卖出回收 ${sellRate}% · 店内实收 ${Math.round((0.92 + Math.min(5, lv) * 0.01) * 100)}%`;
+    const channels = lv >= 4 ? ` · 寄售 ${consignmentSlotsAt(lv)} 格/费率 ${consignmentFeeAt(lv)}% · 拍卖 ${auctionSlotsAt(lv)} 格/费率 ${auctionFeeAt(lv)}%`
+      : lv >= 2 ? ` · 寄售 ${consignmentSlotsAt(lv)} 格/费率 ${consignmentFeeAt(lv)}%` : '';
+    return `买入加价 ${buyFee}% · 卖出回收 ${sellRate}% · 店内实收 ${Math.round((0.92 + Math.min(5, lv) * 0.01) * 100)}%${channels}`;
   }
   return '';
 }
 
 const marketBuyMarkupAt = lv => Math.max(1.05, BASE_MARKET_BUY_MARKUP - lv * 0.02);
 const marketSellRateAt = lv => Math.min(0.95, BASE_MARKET_SELL_RATE + lv * 0.03);
+const consignmentSlotsAt = lv => lv < 2 ? 0 : lv;
+const consignmentFeeAt = lv => Math.max(6, 11 - lv);
+const auctionSlotsAt = lv => lv < 4 ? 0 : lv - 3;
+const auctionFeeAt = lv => Math.max(7, 17 - lv * 2);
 
 function buyUpgrade(key) {
   const u = UPGRADES[key];
@@ -1710,6 +1756,125 @@ function sellToMarket(k) {
   renderAll();
 }
 
+// ==================== 寄售与拍卖 ====================
+const consignmentSlots = () => consignmentSlotsAt(state.upgrades.broker);
+const consignmentFee = () => consignmentFeeAt(state.upgrades.broker);
+const auctionSlots = () => auctionSlotsAt(state.upgrades.broker);
+const auctionFee = () => auctionFeeAt(state.upgrades.broker);
+
+function listConsignment(k, askPct = 115) {
+  askPct = Number(askPct);
+  if (state.upgrades.broker < 2) { flash('市场渠道 Lv.2 才能使用寄售'); return; }
+  if (state.consignments.length >= consignmentSlots()) { flash('寄售位已经满了'); return; }
+  if (!state.collection[k] || isCardLocked(k)) { flash('这张卡不可寄售，请检查库存和锁定状态'); return; }
+  if (commissionReservedQty(k) >= state.collection[k] || state.retailListings.some(x => x.key === k)) {
+    flash('这张卡正被委托或店内货架占用'); return;
+  }
+  if (!CONSIGN_PRICE_OPTIONS.includes(askPct)) askPct = 115;
+  const { id, s } = parseKey(k);
+  state.collection[k]--;
+  if (state.collection[k] <= 0) { delete state.collection[k]; delete state.cardLocks[k]; }
+  state.consignments.push({ id, s, askPct, daysLeft: 3, listedDay: state.day });
+  addTrade(`🏷️ 将【${cardPool[id].name}·S${s}】以行情 ${askPct}% 委托寄售，最长展示 3 天`);
+  renderAll();
+}
+
+function cancelConsignment(i) {
+  const item = state.consignments[i];
+  if (!item) return;
+  const k = keyOf(item.id, item.s);
+  state.collection[k] = (state.collection[k] || 0) + 1;
+  state.consignments.splice(i, 1);
+  addTrade(`↩️ 撤回【${cardPool[item.id].name}·S${item.s}】的寄售`);
+  renderAll();
+}
+
+function listAuction(uid, reservePct = 110) {
+  reservePct = Number(reservePct);
+  if (state.upgrades.broker < 4) { flash('市场渠道 Lv.4 才能使用拍卖'); return; }
+  if (state.auctions.length >= auctionSlots()) { flash('拍卖席位已经满了'); return; }
+  const index = state.specialCards.findIndex(c => c.uid === uid);
+  if (index < 0) return;
+  const card = state.specialCards[index];
+  if (card.locked) { flash('请先解除这张特效卡的收藏保护'); return; }
+  if (!AUCTION_RESERVE_OPTIONS.includes(reservePct)) reservePct = 110;
+  state.specialCards.splice(index, 1);
+  state.auctions.push({ card, reservePct, endDay: state.day + 2, currentBid: 0, bidders: 0, listedDay: state.day });
+  addTrade(`🔨 将【${cardPool[card.id].name}·${specialLabel(card)}】送拍，保留价为估值 ${reservePct}%`);
+  renderAll();
+}
+
+function cancelAuction(i) {
+  const item = state.auctions[i];
+  if (!item) return;
+  if (item.bidders > 0) { flash('已经有人出价，不能撤拍'); return; }
+  state.specialCards.push(item.card);
+  state.auctions.splice(i, 1);
+  addTrade(`↩️ 撤回【${cardPool[item.card.id].name}·${specialLabel(item.card)}】的拍卖`);
+  renderAll();
+}
+
+function processMarketServices() {
+  const report = { day: state.day, consignSold: 0, consignNet: 0, auctionsSold: 0, auctionNet: 0 };
+  const returned = [];
+  state.consignments = state.consignments.filter(item => {
+    const t = cardPool[item.id];
+    if (!t) return false;
+    const ask = Math.max(1, Math.round(cardValue(t, item.s) * item.askPct / 100));
+    const baseChance = { 100: 0.76, 115: 0.54, 130: 0.31, 150: 0.13 }[item.askPct] || 0.45;
+    const chance = clamp(baseChance + state.upgrades.broker * 0.025 + state.upgrades.promo * 0.012, 0.08, 0.9);
+    if (Math.random() < chance) {
+      const gross = Math.max(1, Math.round(ask * randf(0.97, 1.04)));
+      const net = Math.max(1, Math.round(gross * (1 - consignmentFee() / 100)));
+      state.money += net;
+      report.consignSold++;
+      report.consignNet += net;
+      recordProgress('cardsSold', 1); recordProgress('tradeDeals', 1);
+      recordProgress('moneyEarned', net); recordProgress('consignmentsSold', 1);
+      addTrade(`🏷️ 寄售成交【${t.name}·S${item.s}】，落槌 ¥${gross}，扣费后入账 ¥${net}`, 'good');
+      return false;
+    }
+    item.daysLeft--;
+    if (item.daysLeft <= 0) {
+      const k = keyOf(item.id, item.s);
+      state.collection[k] = (state.collection[k] || 0) + 1;
+      returned.push(`【${t.name}】`);
+      return false;
+    }
+    return true;
+  });
+  if (returned.length) addTrade(`📭 寄售到期未成交，已退回 ${returned.join('、')}`);
+
+  state.auctions = state.auctions.filter(item => {
+    const value = specialValue(item.card);
+    const finishPull = { foil: 0.02, holo: 0.08, signed: 0.16, numbered: 0.24 }[item.card.finish] || 0;
+    const interest = clamp(0.58 + finishPull + state.upgrades.broker * 0.045, 0.45, 0.95);
+    if (Math.random() < interest) {
+      const ceiling = Math.round(value * triRandf(0.84, 1.42 + finishPull + state.upgrades.broker * 0.035));
+      if (ceiling > item.currentBid) {
+        item.currentBid = ceiling;
+        item.bidders += rand(1, 3);
+      }
+    }
+    if (state.day < item.endDay) return true;
+    const reserve = Math.round(value * item.reservePct / 100);
+    if (item.currentBid >= reserve) {
+      const net = Math.max(1, Math.round(item.currentBid * (1 - auctionFee() / 100)));
+      state.money += net;
+      report.auctionsSold++;
+      report.auctionNet += net;
+      recordProgress('cardsSold', 1); recordProgress('tradeDeals', 1);
+      recordProgress('moneyEarned', net); recordProgress('auctionsSold', 1);
+      addTrade(`🔨 拍卖成交【${cardPool[item.card.id].name}·${specialLabel(item.card)}】，${item.bidders} 人竞价，净入账 ¥${net}`, 'good');
+    } else {
+      state.specialCards.push(item.card);
+      addTrade(`🔨 拍卖流拍【${cardPool[item.card.id].name}·${specialLabel(item.card)}】，最高出价未达保留价`);
+    }
+    return false;
+  });
+  state.lastMarketReport = report;
+}
+
 // ==================== NPC 私下交易 ====================
 // 最热体系：按平均使用率（热度已隐藏，跟风跟的是使用率）
 function hottestArchetype() {
@@ -1770,6 +1935,34 @@ const NPC_PROFILES = [
 const privateTradeUI = { activeDealerId: null, search: '', filter: 'all' };
 const profileOf = dealer => NPC_PROFILES.find(p => p.key === dealer.profile) || NPC_PROFILES[0];
 const dealerById = id => state.dealers.find(d => d.id === id);
+const relationshipKey = (profile, name) => `${profile}:${name}`;
+function ensureRelationship(profile, name) {
+  const key = relationshipKey(profile, name);
+  if (!state.npcRelationships[key]) {
+    state.npcRelationships[key] = { trust: 0, deals: 0, haggles: 0, targetArch: pick(Object.keys(ARCHETYPES)), wantedArch: '', friendshipRecorded: false };
+  }
+  return state.npcRelationships[key];
+}
+function relationshipOf(dealer) { return ensureRelationship(dealer.profile, dealer.name); }
+function relationshipTier(trust) {
+  if (trust >= 50) return { name: '挚友', next: 50 };
+  if (trust >= 30) return { name: '好友', next: 50 };
+  if (trust >= 15) return { name: '熟客', next: 30 };
+  if (trust >= 5) return { name: '相识', next: 15 };
+  return { name: '初见', next: 5 };
+}
+function changeRelationship(dealer, amount, kind = '') {
+  const rel = relationshipOf(dealer);
+  const before = rel.trust || 0;
+  rel.trust = clamp(before + amount, 0, 60);
+  if (kind === 'deal') rel.deals = (rel.deals || 0) + 1;
+  if (kind === 'haggle') rel.haggles = (rel.haggles || 0) + 1;
+  if (before < 50 && rel.trust >= 50 && !rel.friendshipRecorded) {
+    rel.friendshipRecorded = true;
+    recordProgress('npcFriendships', 1);
+    addLog(`💞 你与 ${dealer.name} 成为挚友，解锁指定寻卡`, 'good');
+  }
+}
 function dealerReservedBudget(dealerId) {
   const offer = state.offers.find(o => o.dealerId === dealerId);
   const original = offer && offer.source === 'player' ? offer.originalOffer : offer;
@@ -1793,20 +1986,24 @@ function rollNpcQuality(index) {
   return 1 + Math.floor(Math.pow(Math.random(), 1.6) * max);
 }
 
-function createDealer(profile, index) {
+function createDealer(profile, index, forcedName = '') {
   const quality = rollNpcQuality(index);
+  const knownNames = profile.names.filter(name => (state.npcRelationships[relationshipKey(profile.key, name)]?.trust || 0) > 0);
+  const name = forcedName || (knownNames.length && Math.random() < 0.48 ? pick(knownNames) : pick(profile.names));
+  const rel = ensureRelationship(profile.key, name);
   const dealer = {
     id: `D${state.day}-${index}-${rand(1000, 9999)}`,
     profile: profile.key,
-    name: pick(profile.names),
+    name,
     emoji: profile.emoji,
     budget: rand(profile.budget[0], profile.budget[1]),
     maxBudget: 0,
-    patience: rand(2, 3),
-    flexibility: randf(0.02, 0.16),
+    patience: rand(2, 3) + (rel.trust >= 30 ? 1 : 0),
+    flexibility: randf(0.02, 0.16) + Math.min(0.1, rel.trust * 0.002),
     maxTrades: rand(profile.trades[0], profile.trades[1]),
     tradesDone: 0,
     quality,
+    relKey: relationshipKey(profile.key, name),
   };
   if (quality > 0) dealer.budget = rand(NPC_QUALITY[quality].budget[0], NPC_QUALITY[quality].budget[1]);
   dealer.maxBudget = dealer.budget;
@@ -1839,16 +2036,27 @@ function quoteCardToDealer(dealer, t, s) {
   if (score < 0) return { accepted: false, score, reason: '不符合收购范围' };
   const profile = profileOf(dealer);
   const mult = score === 2 ? profile.mult : score === 1 ? 0.9 : 0.45;
-  const price = Math.max(1, Math.round(dealerValuation(dealer, t, s) * mult * stableQuoteVariance(dealer, t.id, s)));
+  const rel = relationshipOf(dealer);
+  const targetBonus = rel.trust >= 30 && rel.targetArch === t.archetype ? 1.18 : 1;
+  const friendship = 1 + Math.min(0.12, rel.trust * 0.0025);
+  const price = Math.max(1, Math.round(dealerValuation(dealer, t, s) * mult * targetBonus * friendship * stableQuoteVariance(dealer, t.id, s)));
   const availableBudget = Math.max(0, dealer.budget - dealerReservedBudget(dealer.id));
   if (price > availableBudget) return { accepted: false, score, price, reason: `预算不足（扣除原求购预留后可用 ¥${availableBudget}）` };
   return {
     accepted: true, score, price,
-    label: score === 2 ? '偏好溢价' : score === 1 ? '正常收购' : '非偏好压价',
+    label: targetBonus > 1 ? '专属求购溢价' : score === 2 ? '偏好溢价' : score === 1 ? '正常收购' : '非偏好压价',
   };
 }
 
 function npcSellItem(dealer) {
+  const rel = relationshipOf(dealer);
+  if (rel.trust >= 50 && rel.wantedArch) {
+    const wanted = cardPool.filter(t => t.archetype === rel.wantedArch);
+    if (wanted.length) {
+      const t = pick(wanted);
+      return { t, s: curSeason(), ...rollNpcSpecial(dealer.quality || 0), requested: true };
+    }
+  }
   for (let tries = 0; tries < 50; tries++) {
     const t = pick(cardPool);
     const s = rand(1, curSeason());
@@ -1881,33 +2089,58 @@ function rollNpcSpecial(quality) {
 }
 
 function makeNpcOffer(dealer) {
+  const rel = relationshipOf(dealer);
   const matches = Object.keys(state.collection).filter(k => !isCardLocked(k)).map(k => ({ k, ...parseKey(k) }))
     .map(item => ({ ...item, quote: quoteCardToDealer(dealer, cardPool[item.id], item.s) }))
     .filter(item => item.quote.accepted && item.quote.score >= 1);
   const privateItem = npcSellItem(dealer);
-  if (matches.length && !privateItem.finish && Math.random() < 0.75) {
-    const match = pick(matches);
-    return { dealerId: dealer.id, mode: 'buy', id: match.id, s: match.s, price: match.quote.price, rounds: 0, note: '' };
+  const targetMatches = rel.trust >= 30 ? matches.filter(x => cardPool[x.id].archetype === rel.targetArch) : [];
+  if ((targetMatches.length || matches.length) && !privateItem.finish && Math.random() < 0.75) {
+    const match = pick(targetMatches.length ? targetMatches : matches);
+    return { dealerId: dealer.id, mode: 'buy', id: match.id, s: match.s, price: match.quote.price, rounds: 0, note: targetMatches.includes(match) ? `🎯 ${dealer.name} 的专属求购目标` : '' };
   }
   const special = privateItem.finish ? makeSpecialCard(privateItem.t.id, privateItem.s, privateItem.finish, dealer.name, privateItem.serial) : null;
   const value = special ? specialValue(special) : cardValue(privateItem.t, privateItem.s);
-  const price = Math.max(1, Math.round(value * randf(special ? 0.98 : 0.88, special ? 1.25 : 1.08)));
+  const friendlyDiscount = 1 - Math.min(0.12, rel.trust * 0.0025);
+  const price = Math.max(1, Math.round(value * randf(special ? 0.98 : 0.88, special ? 1.25 : 1.08) * friendlyDiscount));
   return {
     dealerId: dealer.id, mode: 'sell', id: privateItem.t.id, s: privateItem.s,
     finish: privateItem.finish, serial: privateItem.serial, price, rounds: 0,
-    note: special ? `💎 ${NPC_QUALITY[dealer.quality].name}展示的私藏` : '',
+    note: privateItem.requested ? `🧭 ${dealer.name} 按你的预约找来的卡` : special ? `💎 ${NPC_QUALITY[dealer.quality].name}展示的私藏` : '',
   };
 }
 
 function makeOffers() {
   const count = dailyGuestCount();
-  const profiles = NPC_PROFILES.slice().sort(() => Math.random() - 0.5).slice(0, count);
-  state.dealers = profiles.map(createDealer);
+  const reservation = state.npcReservation;
+  let profiles = NPC_PROFILES.slice().sort(() => Math.random() - 0.5).slice(0, count);
+  if (reservation) {
+    const reservedProfile = NPC_PROFILES.find(p => p.key === reservation.profile);
+    if (reservedProfile) profiles = [reservedProfile, ...profiles.filter(p => p.key !== reservedProfile.key)].slice(0, count);
+  }
+  state.dealers = profiles.map((profile, index) => createDealer(profile, index, index === 0 && reservation ? reservation.name : ''));
+  state.npcReservation = null;
   state.offers = [];
   state.offers = state.dealers.map(makeNpcOffer);
   if (state.dealers.some(d => d.quality > 0)) state.collectorHeat = 0;
   else state.collectorHeat++;
   privateTradeUI.activeDealerId = null;
+}
+
+function reserveDealer(dealerId) {
+  const dealer = dealerById(dealerId);
+  if (!dealer || relationshipOf(dealer).trust < 15) return;
+  state.npcReservation = { profile: dealer.profile, name: dealer.name };
+  flash(`已预约 ${dealer.name} 明日到店`);
+  renderAll();
+}
+
+function setDealerWantedArch(dealerId, arch) {
+  const dealer = dealerById(dealerId);
+  if (!dealer || relationshipOf(dealer).trust < 50 || !ARCHETYPES[arch]) return;
+  relationshipOf(dealer).wantedArch = arch;
+  flash(`${dealer.name} 会在下次来访时尽量带来${ARCHETYPES[arch].name}卡`);
+  renderAll();
 }
 
 function restoreOriginalOffer(i, offer) {
@@ -1969,6 +2202,7 @@ function acceptOffer(i) {
     recordProgress('tradeDeals', 1);
     addTrade(`🤝 你从 ${dealer.name} 手中买下【${t.name}·S${o.s}${o.finish ? ` · ${SPECIAL_FINISHES[o.finish].name}` : ''}】，花费 ¥${o.price}`);
   }
+  changeRelationship(dealer, o.source === 'player' ? 3 : 2, 'deal');
   finishDealerTrade(i, o, dealer);
   renderAll();
 }
@@ -1984,7 +2218,7 @@ function haggleOffer(i, level) {
     ? Math.max(o.price + 1, Math.round(o.price * (1 + cfg.delta)))
     : Math.max(1, Math.min(o.price - 1, Math.round(o.price * (1 - cfg.delta))));
   const withinBudget = o.mode !== 'buy' || target <= dealer.budget;
-  const chance = withinBudget ? clamp(cfg.chance + dealer.flexibility - o.rounds * 0.12, 0.08, 0.9) : 0;
+  const chance = withinBudget ? clamp(cfg.chance + dealer.flexibility + Math.min(0.08, relationshipOf(dealer).trust * 0.0015) - o.rounds * 0.12, 0.08, 0.92) : 0;
   o.rounds++;
   dealer.patience--;
   if (Math.random() < chance) {
@@ -1992,6 +2226,7 @@ function haggleOffer(i, level) {
     o.note = `✅ ${dealer.name} 接受了你的条件`;
     addTrade(`🗣️ 与 ${dealer.name} 讲价成功，报价调整为 ¥${o.price}`);
     recordProgress('hagglesWon', 1);
+    changeRelationship(dealer, level === 'gentle' ? 2 : 1, 'haggle');
   } else if (dealer.patience <= 0 || (level === 'hard' && Math.random() < 0.48)) {
     addTrade(`💨 对 ${dealer.name} 压价过狠，对方结束了这笔报价`);
     if (o.source === 'player') {
@@ -2001,6 +2236,7 @@ function haggleOffer(i, level) {
       state.offers.splice(i, 1);
     }
     flash(`${dealer.name} 被惹恼，结束了报价`);
+    changeRelationship(dealer, level === 'hard' ? -4 : -2);
   } else {
     const counter = o.mode === 'buy'
       ? Math.min(dealer.budget, Math.round(o.price + (target - o.price) * 0.35))
@@ -2378,6 +2614,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
       <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
     </div>
     <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}` : '今日没有顾客成交'}</b></div>
+    <div class="settlement-retail"><span>🏷️ 寄售与拍卖</span><b>${state.lastMarketReport.consignSold || state.lastMarketReport.auctionsSold ? `寄售 ${state.lastMarketReport.consignSold} 笔 / 拍卖 ${state.lastMarketReport.auctionsSold} 场 · 净收入 ¥${state.lastMarketReport.consignNet + state.lastMarketReport.auctionNet}` : '今日没有渠道成交'}</b></div>
     <div class="settlement-retail"><span>🚚 批发到货</span><b>${state.lastWholesaleReport.orders ? `${state.lastWholesaleReport.orders} 批 · ${state.lastWholesaleReport.cards} 张 · 当前估值 ¥${state.lastWholesaleReport.value}` : '今日没有新批次到货'}</b></div>
     ${seasonExtras}
     <section class="settlement-market">
@@ -2419,6 +2656,7 @@ function nextDay() {
   tickReprint();
   if (curSeason() > prevSeason) seasonEvent();
   dailyEvent();
+  processMarketServices();
   maybeReprint();
   refreshMarket();
   makeOffers();
@@ -2933,6 +3171,45 @@ function renderMarket() {
   }).join('');
 }
 
+function renderMarketServices() {
+  const consignEl = $('consignmentBoard');
+  const auctionEl = $('auctionBoard');
+  if (!consignEl || !auctionEl) return;
+  const broker = state.upgrades.broker;
+  $('consignmentInfo').textContent = broker >= 2 ? `${state.consignments.length}/${consignmentSlots()} 格 · 手续费 ${consignmentFee()}%` : '市场渠道 Lv.2 解锁';
+  $('auctionInfo').textContent = broker >= 4 ? `${state.auctions.length}/${auctionSlots()} 席 · 手续费 ${auctionFee()}%` : '市场渠道 Lv.4 解锁';
+
+  if (broker < 2) consignEl.innerHTML = '<div class="service-locked"><b>🔒 尚未接通寄售平台</b><span>把「市场渠道」升到 Lv.2 后开放。即时市场仍可正常使用。</span></div>';
+  else {
+    const active = state.consignments.length ? `<div class="service-active-list">${state.consignments.map((item, i) => {
+      const t = cardPool[item.id];
+      const ask = Math.round(cardValue(t, item.s) * item.askPct / 100);
+      return listingHTML(t, `<span class="service-status">¥${ask} · 剩 ${item.daysLeft} 天</span><button class="btn btn-dim" onclick="cancelConsignment(${i})">撤回</button>`, item.s);
+    }).join('')}</div>` : '<div class="service-empty">当前没有寄售中的卡牌</div>';
+    const candidates = Object.keys(state.collection).filter(k => !isCardLocked(k) && !state.retailListings.some(x => x.key === k) && state.collection[k] > commissionReservedQty(k))
+      .map(k => ({ k, ...parseKey(k) })).sort((a, b) => cardValue(cardPool[b.id], b.s) - cardValue(cardPool[a.id], a.s));
+    const picker = state.consignments.length < consignmentSlots() ? `
+      <div class="service-picker-head"><b>选择寄售卡</b><label>标价 <select onchange="marketServiceUI.consignPct=Number(this.value);renderMarketServices()">${CONSIGN_PRICE_OPTIONS.map(p => `<option value="${p}" ${marketServiceUI.consignPct === p ? 'selected' : ''}>行情 ${p}%</option>`).join('')}</select></label></div>
+      <div class="service-candidates">${candidates.length ? candidates.map(x => listingHTML(cardPool[x.id], `<button class="btn buy-btn" onclick="listConsignment('${x.k}',${marketServiceUI.consignPct})">寄售</button>`, x.s)).join('') : '<div class="service-empty">没有可用的未锁定普通卡</div>'}</div>` : '<div class="service-cap">寄售位已满，等待成交或撤回后再上架。</div>';
+    consignEl.innerHTML = active + picker;
+  }
+
+  if (broker < 4) auctionEl.innerHTML = '<div class="service-locked"><b>🔒 高端拍卖行尚未开放</b><span>市场渠道 Lv.4 解锁；Lv.5 增加第二个拍卖席并降低手续费。</span></div>';
+  else {
+    const active = state.auctions.length ? `<div class="service-active-list">${state.auctions.map((item, i) => {
+      const card = item.card;
+      const reserve = Math.round(specialValue(card) * item.reservePct / 100);
+      const status = item.currentBid ? `当前 ¥${item.currentBid} · ${item.bidders} 人` : '等待首位出价';
+      return listingHTML(cardPool[card.id], `<span class="service-status">${status}<small>保留价 ¥${reserve} · ${Math.max(0, item.endDay - state.day)} 天</small></span><button class="btn btn-dim" onclick="cancelAuction(${i})" ${item.bidders ? 'disabled title="已有出价，不能撤拍"' : ''}>撤拍</button>`, card.s, card);
+    }).join('')}</div>` : '<div class="service-empty">当前没有进行中的拍卖</div>';
+    const candidates = state.specialCards.filter(c => !c.locked).sort((a, b) => specialValue(b) - specialValue(a));
+    const picker = state.auctions.length < auctionSlots() ? `
+      <div class="service-picker-head"><b>选择送拍藏品</b><label>保留价 <select onchange="marketServiceUI.reservePct=Number(this.value);renderMarketServices()">${AUCTION_RESERVE_OPTIONS.map(p => `<option value="${p}" ${marketServiceUI.reservePct === p ? 'selected' : ''}>估值 ${p}%</option>`).join('')}</select></label></div>
+      <div class="service-candidates">${candidates.length ? candidates.map(card => listingHTML(cardPool[card.id], `<button class="btn buy-btn" onclick="listAuction('${card.uid}',${marketServiceUI.reservePct})">送拍</button>`, card.s, card)).join('') : '<div class="service-empty">没有已解锁的特效卡；收藏保护中的卡不会显示</div>'}</div>` : '<div class="service-cap">拍卖席已满，等待落槌或撤拍后再送入。</div>';
+    auctionEl.innerHTML = active + picker;
+  }
+}
+
 // 体系风云榜：按平均使用率排名，展示胜率/使用率
 function renderArchBoard() {
   const rows = Object.keys(ARCHETYPES).map(a => {
@@ -2983,6 +3260,9 @@ function renderOffers() {
     const offerIndex = state.offers.findIndex(o => o.dealerId === dealer.id);
     const o = offerIndex >= 0 ? state.offers[offerIndex] : null;
     const profile = profileOf(dealer);
+    const rel = relationshipOf(dealer);
+    const relTier = relationshipTier(rel.trust || 0);
+    const reserved = state.npcReservation && state.npcReservation.profile === dealer.profile && state.npcReservation.name === dealer.name;
     const budgetPct = dealer.maxBudget ? Math.round(dealer.budget / dealer.maxBudget * 100) : 0;
     let offerHTML = `<div class="dealer-no-offer">${(dealer.tradesDone || 0) >= dealer.maxTrades ? '今天的主动售卡次数已经用完。' : '当前没有主动报价，但仍可以向 TA 出售符合偏好的卡。'}</div>`;
     if (o) {
@@ -3011,6 +3291,15 @@ function renderOffers() {
           <span class="npc-emoji">${dealer.emoji}</span>
           <div class="dealer-identity"><b>${dealer.name}</b><div class="npc-tag">${dealer.tag}</div>${dealer.quality ? `<span class="npc-quality quality-${dealer.quality}">💎 ${NPC_QUALITY[dealer.quality].name}</span>` : ''}</div>
           <div class="dealer-limits"><span class="dealer-patience" title="剩余耐心">耐心 ${'●'.repeat(dealer.patience)}${'○'.repeat(Math.max(0, 3 - dealer.patience))}</span><span>主动售卡 ${dealer.tradesDone || 0}/${dealer.maxTrades}</span></div>
+        </div>
+        <div class="npc-relationship">
+          <div><span>关系 · <b>${relTier.name}</b></span><strong>${rel.trust || 0}/60</strong></div>
+          <i><em style="width:${Math.round((rel.trust || 0) / 60 * 100)}%"></em></i>
+          <small>${rel.trust >= 30 ? `专属求购：${ARCHETYPES[rel.targetArch].emoji}${ARCHETYPES[rel.targetArch].name} · 报价 +18%` : `信任 ${relTier.next} 解锁${relTier.next === 5 ? '关系加成' : relTier.next === 15 ? '预约回访' : '专属求购'}`}</small>
+          <div class="relationship-actions">
+            ${rel.trust >= 15 ? `<button class="btn btn-dim" onclick="reserveDealer('${dealer.id}')" ${reserved ? 'disabled' : ''}>${reserved ? '✓ 已预约明日' : '📅 预约明日回访'}</button>` : ''}
+            ${rel.trust >= 50 ? `<label>🧭 指定寻卡 <select onchange="setDealerWantedArch('${dealer.id}',this.value)"><option value="" ${!rel.wantedArch ? 'selected' : ''}>选择体系</option>${Object.entries(ARCHETYPES).map(([key, a]) => `<option value="${key}" ${rel.wantedArch === key ? 'selected' : ''}>${a.emoji}${a.name}</option>`).join('')}</select></label>` : ''}
+          </div>
         </div>
         <div class="dealer-budget"><span>今日收购预算</span><b>¥${dealer.budget}</b><i><em style="width:${budgetPct}%"></em></i></div>
         ${offerHTML}
@@ -3270,6 +3559,7 @@ function renderAll() {
   renderShop();
   renderCollection();
   renderMarket();
+  renderMarketServices();
   renderArchBoard();
   renderBoard();
   renderOffers();

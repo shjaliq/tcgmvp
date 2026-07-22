@@ -137,6 +137,18 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
       <h2>🏪 公开市场 <span class="h2-sub" id="marketFeeInfo">每日刷新</span></h2>
       <div id="market" class="market-grid"></div>
     </section>
+    <section class="market-services">
+      <div class="panel market-service-panel" id="consignmentPanel">
+        <h2>🏷️ 委托寄售 <span class="h2-sub" id="consignmentInfo"></span></h2>
+        <p class="service-help">普通卡交给渠道展示三天。定价越高越难成交，成交后再扣手续费。</p>
+        <div id="consignmentBoard"></div>
+      </div>
+      <div class="panel market-service-panel" id="auctionPanel">
+        <h2>🔨 特效卡拍卖 <span class="h2-sub" id="auctionInfo"></span></h2>
+        <p class="service-help">面向藏家竞价，仅接收已解锁的特效卡；两天后落槌，未达保留价则流拍退回。</p>
+        <div id="auctionBoard"></div>
+      </div>
+    </section>
     <section class="panel" id="arch-panel">
       <h2>🏆 体系风云榜 <span class="h2-sub">按使用率排名 · 每日更新</span></h2>
       <div id="archBoard"></div>
