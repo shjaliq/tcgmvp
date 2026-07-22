@@ -57,6 +57,7 @@ const PATCH_CHANCE = 0.30;        // 每天出平衡补丁的概率
 const ROUTES = ['home', 'shop', 'market', 'private', 'commission', 'achievements', 'collection', 'upgrade', 'news'];
 const collectionView = { batchMode: false, selected: new Set() };
 const marketServiceUI = { consignPct: 115, reservePct: 110 };
+const storefrontUI = { branchType: 'budget' };
 
 const COMMISSION_DIFFICULTIES = {
   normal:   { name: '普通', icon: '🟢', targetBase: 52, rewardMult: 0.9, repMult: 0.9,  repCap: 8 },
@@ -128,6 +129,8 @@ const CAREER_MILESTONE_GROUPS = [
   { key: 'consignmentsSold', icon: '🏷️', name: '寄售经理', unit: '笔寄售', tiers: [[5, 8], [30, 25], [150, 60]] },
   { key: 'auctionsSold', icon: '🔨', name: '拍卖行常客', unit: '场成交', tiers: [[1, 12], [10, 35], [50, 80]] },
   { key: 'npcFriendships', icon: '💞', name: '收藏圈名人', unit: '位挚友', tiers: [[1, 12], [5, 35], [12, 75]] },
+  { key: 'highStoreRatings', icon: '🏅', name: '名店评级', unit: '次 S/SS', tiers: [[1, 12], [5, 35], [20, 80]] },
+  { key: 'annualAwards', icon: '🏆', name: '年度卡店', unit: '次获奖', tiers: [[1, 20], [3, 55], [10, 120]] },
 ];
 
 const emptyProgressStats = () => ({
@@ -138,6 +141,7 @@ const emptyProgressStats = () => ({
   coresAcquired: 0, urAcquired: 0, uniqueOwnedMax: 0, archetypesMastered: 0,
   specialCardsAcquired: 0, premiumSpecialsAcquired: 0,
   consignmentsSold: 0, auctionsSold: 0, npcFriendships: 0,
+  highStoreRatings: 0, annualAwards: 0,
 });
 
 const career = { stats: emptyProgressStats(), completed: {}, challenges: {}, masteredArchetypes: {}, points: 0 };
@@ -178,6 +182,21 @@ const STORE_LEVELS = [
 const RETAIL_PRICE_OPTIONS = [90, 100, 110, 125, 140, 160];
 const BRANCH_MAX = 10;
 const BRANCH_SLOTS = 4;
+const BRANCH_TYPES = {
+  competitive: { name: '竞技专营店', icon: '🏆', reserve: 1600, dailyCost: 85, desc: '当季高热度卡成交率 +38%', match: (t, s) => s === curSeason() && effectiveHeat(t, s) >= 60 },
+  moe:         { name: '萌系主题店', icon: '🌸', reserve: 1300, dailyCost: 70, desc: '萌系画风卡成交率 +42%', match: t => t.artStyle === 'moe' },
+  nostalgia:   { name: '怀旧老卡店', icon: '🕰️', reserve: 1200, dailyCost: 65, desc: '往季与退环境卡成交率 +45%', match: (t, s) => s < curSeason() },
+  budget:      { name: '平价社区店', icon: '🏷️', reserve: 900,  dailyCost: 50, desc: '定价不高于行情 110% 时成交率 +32%', match: (t, s, listing) => listing.pricePct <= 110 },
+  premium:     { name: '高端收藏店', icon: '💎', reserve: 2400, dailyCost: 125, desc: 'SR/UR 高价卡成交率 +35%', match: (t, s, listing) => ['SR', 'UR'].includes(t.rarity) && listing.pricePct >= 125 },
+};
+
+const STORE_RATING_GRADES = [
+  { min: 90, grade: 'SS', name: '殿堂名店', rep: 12, cash: 2000, prestige: 10 },
+  { min: 78, grade: 'S',  name: '明星卡店', rep: 7,  cash: 1000, prestige: 7 },
+  { min: 63, grade: 'A',  name: '区域强店', rep: 4,  cash: 500,  prestige: 4 },
+  { min: 45, grade: 'B',  name: '稳健经营', rep: 2,  cash: 200,  prestige: 2 },
+  { min: 0,  grade: 'C',  name: '仍需努力', rep: 0,  cash: 0,    prestige: 1 },
+];
 
 const WHOLESALE_TYPES = {
   standard: {
@@ -592,6 +611,10 @@ const state = {
   upgrades: { supply: 0, promo: 0, intel: 0, packs: 0, broker: 0 },
   storeLevel: 0,
   storeBranches: 0,
+  branchStores: [],
+  storeRatings: [],
+  storePrestige: 0,
+  seasonBusiness: null,
   retailListings: [], // [{key, pricePct}]：从收藏中陈列一张，成交后扣除
   lastRetailReport: { day: 0, sales: 0, gross: 0, net: 0 },
   wholesaleOffers: [],
@@ -628,6 +651,7 @@ function netWorth() {
   v += state.specialCards.reduce((sum, card) => sum + specialValue(card), 0);
   v += state.consignments.reduce((sum, item) => sum + cardValue(cardPool[item.id], item.s), 0);
   v += state.auctions.reduce((sum, item) => sum + specialValue(item.card), 0);
+  v += state.branchStores.reduce((sum, branch) => sum + Math.max(0, Number(branch.capital) || 0), 0);
   return v;
 }
 
@@ -675,6 +699,10 @@ function saveGame() {
       upgrades: state.upgrades,
       storeLevel: state.storeLevel,
       storeBranches: state.storeBranches,
+      branchStores: state.branchStores,
+      storeRatings: state.storeRatings,
+      storePrestige: state.storePrestige,
+      seasonBusiness: state.seasonBusiness,
       retailListings: state.retailListings,
       lastRetailReport: state.lastRetailReport,
       wholesaleOffers: state.wholesaleOffers,
@@ -841,6 +869,20 @@ function loadGame() {
     };
     state.storeLevel = clamp(Number(d.storeLevel) || 0, 0, STORE_LEVELS.length - 1);
     state.storeBranches = clamp(Math.floor(Number(d.storeBranches) || 0), 0, BRANCH_MAX);
+    const branchTypeKeys = Object.keys(BRANCH_TYPES);
+    state.branchStores = (Array.isArray(d.branchStores) ? d.branchStores : []).filter(x => x && BRANCH_TYPES[x.type]).slice(0, BRANCH_MAX).map((x, i) => ({
+      id: x.id || `B${i + 1}`, type: x.type, capital: Math.max(0, Number(x.capital) || 0),
+      lifetimeSales: Math.max(0, Number(x.lifetimeSales) || 0), lifetimeProfit: Number(x.lifetimeProfit) || 0,
+      seasonSales: Math.max(0, Number(x.seasonSales) || 0), seasonProfit: Number(x.seasonProfit) || 0,
+    }));
+    while (state.branchStores.length < state.storeBranches) {
+      const i = state.branchStores.length;
+      state.branchStores.push({ id: `B${i + 1}`, type: branchTypeKeys[i % branchTypeKeys.length], capital: 0, lifetimeSales: 0, lifetimeProfit: 0, seasonSales: 0, seasonProfit: 0 });
+    }
+    state.storeBranches = state.branchStores.length;
+    state.storeRatings = Array.isArray(d.storeRatings) ? d.storeRatings.slice(-12) : [];
+    state.storePrestige = Math.max(0, Number(d.storePrestige) || 0);
+    state.seasonBusiness = d.seasonBusiness && typeof d.seasonBusiness === 'object' ? d.seasonBusiness : null;
     state.retailListings = (Array.isArray(d.retailListings) ? d.retailListings : [])
       .filter(l => l && typeof l.key === 'string' && RETAIL_PRICE_OPTIONS.includes(Number(l.pricePct)))
       .map(l => ({ key: l.key, pricePct: Number(l.pricePct) }))
@@ -1056,15 +1098,123 @@ const storeDef = () => STORE_LEVELS[state.storeLevel];
 const storeShelfSlots = () => storeDef().slots + state.storeBranches * BRANCH_SLOTS;
 const retailNetRate = () => Math.min(0.97, 0.92 + state.upgrades.broker * 0.01);
 const branchCost = () => Math.round(30000 * Math.pow(1.55, state.storeBranches) / 1000) * 1000;
+const branchOf = id => state.branchStores.find(b => b.id === id);
+const branchDef = branch => branch && BRANCH_TYPES[branch.type];
+const prestigeTrafficBonus = () => Math.min(0.2, state.storePrestige * 0.002);
+
+function freshSeasonBusiness() {
+  return {
+    season: curSeason(), startWorth: netWorth(), startCommissions: state.runStats.commissionsCompleted || 0,
+    startDeals: state.runStats.tradeDeals || 0, startChallenges: Object.keys(career.challenges).length,
+    retailNet: 0, branchCosts: 0,
+  };
+}
+
+function ensureSeasonBusiness() {
+  if (!state.seasonBusiness || state.seasonBusiness.season !== curSeason()) state.seasonBusiness = freshSeasonBusiness();
+  return state.seasonBusiness;
+}
+
+function storeRatingGrade(score) { return STORE_RATING_GRADES.find(x => score >= x.min) || STORE_RATING_GRADES.at(-1); }
+
+function finalizeStoreRating(season) {
+  const b = state.seasonBusiness || freshSeasonBusiness();
+  const profit = netWorth() - (Number(b.startWorth) || netWorth());
+  const profitTarget = 1500 + season * 750;
+  const profitScore = clamp(profit / profitTarget * 30, 0, 30);
+  const commissionCount = Math.max(0, (state.runStats.commissionsCompleted || 0) - (b.startCommissions || 0));
+  const commissionScore = Math.min(15, commissionCount * 4);
+  const ownedIds = new Set([...Object.keys(state.collection).map(k => parseKey(k).id), ...state.specialCards.map(c => c.id)]);
+  const collectionScore = Math.min(15, ownedIds.size / Math.max(1, cardPool.length) * 30);
+  const dealCount = Math.max(0, (state.runStats.tradeDeals || 0) - (b.startDeals || 0));
+  const dealScore = Math.min(15, dealCount * 0.75);
+  const trusts = Object.values(state.npcRelationships).map(r => Number(r.trust) || 0).sort((a, b) => b - a).slice(0, 8);
+  const relationshipScore = trusts.length ? Math.min(15, trusts.reduce((sum, n) => sum + n, 0) / (trusts.length * 40) * 15) : 0;
+  const challengeCount = Math.max(0, Object.keys(career.challenges).length - (b.startChallenges || 0));
+  const challengeScore = Math.min(10, challengeCount * 5);
+  const score = Math.round(profitScore + commissionScore + collectionScore + dealScore + relationshipScore + challengeScore);
+  const grade = storeRatingGrade(score);
+  const result = {
+    season, score, grade: grade.grade, name: grade.name, profit: Math.round(profit), commissionCount, dealCount,
+    components: { profit: Math.round(profitScore), commissions: Math.round(commissionScore), collection: Math.round(collectionScore), deals: Math.round(dealScore), relationships: Math.round(relationshipScore), challenges: Math.round(challengeScore) },
+    rep: grade.rep, cash: grade.cash,
+  };
+  state.storeRatings.push(result);
+  if (state.storeRatings.length > 12) state.storeRatings.shift();
+  state.money += grade.cash;
+  state.reputation += grade.rep;
+  state.lifetimeReputation += grade.rep;
+  state.storePrestige += grade.prestige;
+  if (grade.rep) recordProgress('reputationEarned', grade.rep);
+  if (grade.grade === 'S' || grade.grade === 'SS') recordProgress('highStoreRatings', 1);
+  addLog(`🏅 S${season} 卡店评级：${grade.grade} · ${grade.name}（${score} 分），奖励 ¥${grade.cash} / 声望 ${grade.rep}`, grade.grade === 'C' ? 'bad' : 'good');
+  state.branchStores.forEach(branch => { branch.seasonSales = 0; branch.seasonProfit = 0; });
+
+  if (season % 4 === 0) {
+    const annual = state.storeRatings.filter(x => x.season > season - 4 && x.season <= season);
+    const avg = annual.length ? Math.round(annual.reduce((sum, x) => sum + x.score, 0) / annual.length) : 0;
+    const won = avg >= 63;
+    result.annual = { avg, won };
+    if (won) {
+      const annualRep = avg >= 85 ? 15 : 8;
+      const annualCash = avg >= 85 ? 3000 : 1500;
+      state.money += annualCash; state.reputation += annualRep; state.lifetimeReputation += annualRep; state.storePrestige += avg >= 85 ? 12 : 6;
+      recordProgress('reputationEarned', annualRep); recordProgress('annualAwards', 1);
+      addLog(`🏆 第 ${season / 4} 届年度评选获奖！四季均分 ${avg}，奖励 ¥${annualCash} / 声望 ${annualRep}`, 'good');
+    } else addLog(`📋 第 ${season / 4} 届年度评选：四季均分 ${avg}，未达到 63 分获奖线`);
+  }
+  state.seasonBusiness = null;
+  return result;
+}
 
 function openStoreBranch() {
   if (state.storeLevel < STORE_LEVELS.length - 1) { flash('总店达到连锁品牌后才能开设分店'); return; }
   if (state.storeBranches >= BRANCH_MAX) return;
-  const cost = branchCost();
-  if (state.money < cost) { flash(`开设下一家分店需要 ¥${cost}`); return; }
-  state.money -= cost;
-  state.storeBranches++;
-  addLog(`🏙️ 第 ${state.storeBranches} 家分店开业：货架位 +${BRANCH_SLOTS}，每日最大成交量 +1`, 'good');
+  const select = typeof document !== 'undefined' ? $('branchTypeSelect') : null;
+  const type = select && BRANCH_TYPES[select.value] ? select.value : 'budget';
+  const def = BRANCH_TYPES[type];
+  const build = branchCost();
+  const total = build + def.reserve;
+  if (state.money < total) { flash(`建设与首期周转金共需 ¥${total}`); return; }
+  state.money -= total;
+  const branch = { id: `B${state.storeBranches + 1}`, type, capital: def.reserve, lifetimeSales: 0, lifetimeProfit: 0, seasonSales: 0, seasonProfit: 0 };
+  state.branchStores.push(branch);
+  state.storeBranches = state.branchStores.length;
+  addLog(`🏙️ 第 ${state.storeBranches} 家分店【${def.name}】开业：拨入周转金 ¥${def.reserve}，货架位 +${BRANCH_SLOTS}`, 'good');
+  renderAll();
+}
+
+function fundBranch(index) {
+  const branch = state.branchStores[index];
+  if (!branch) return;
+  const amount = Math.min(1000, state.money);
+  if (amount <= 0) { flash('没有可调拨的资金'); return; }
+  state.money -= amount;
+  branch.capital += amount;
+  addTrade(`🏦 向${branchDef(branch).name}调拨周转金 ¥${amount}`);
+  renderAll();
+}
+
+function withdrawBranchProfit(index) {
+  const branch = state.branchStores[index];
+  if (!branch) return;
+  const reserve = branchDef(branch).reserve;
+  const amount = Math.max(0, Math.floor(branch.capital - reserve));
+  if (!amount) { flash('当前没有超过建议周转金的可提利润'); return; }
+  branch.capital -= amount;
+  state.money += amount;
+  addTrade(`💵 从${branchDef(branch).name}归集利润 ¥${amount}`, 'good');
+  renderAll();
+}
+
+function changeBranchType(index, type) {
+  const branch = state.branchStores[index];
+  if (!branch || !BRANCH_TYPES[type] || branch.type === type) return;
+  const fee = 5000;
+  if (state.money < fee) { flash(`门店改造需要 ¥${fee}`); return; }
+  state.money -= fee;
+  branch.type = type;
+  addLog(`🛠️ 第 ${index + 1} 家分店改造为【${BRANCH_TYPES[type].name}】，花费 ¥${fee}`);
   renderAll();
 }
 
@@ -1143,6 +1293,24 @@ function cleanRetailListings() {
     seen.add(l.key);
     return true;
   }).slice(0, storeShelfSlots());
+  const validLocations = new Set(['main', ...state.branchStores.map(b => b.id)]);
+  const used = {};
+  state.retailListings.forEach(l => {
+    if (!validLocations.has(l.location)) l.location = '';
+    if (l.location && (used[l.location] || 0) < (l.location === 'main' ? storeDef().slots : BRANCH_SLOTS)) used[l.location] = (used[l.location] || 0) + 1;
+    else l.location = '';
+  });
+  state.retailListings.forEach(l => {
+    if (l.location) return;
+    const locations = ['main', ...state.branchStores.map(b => b.id)];
+    l.location = locations.find(id => (used[id] || 0) < (id === 'main' ? storeDef().slots : BRANCH_SLOTS)) || 'main';
+    used[l.location] = (used[l.location] || 0) + 1;
+  });
+}
+
+function nextRetailLocation() {
+  const locations = ['main', ...state.branchStores.map(b => b.id)];
+  return locations.find(id => state.retailListings.filter(l => (l.location || 'main') === id).length < (id === 'main' ? storeDef().slots : BRANCH_SLOTS)) || 'main';
 }
 
 function addRetailListing() {
@@ -1154,7 +1322,7 @@ function addRetailListing() {
   if (!key || !retailCardIsFree(key)) { flash('这张卡已被委托占用或不在收藏中'); return; }
   if (state.retailListings.length >= storeShelfSlots()) { flash('陈列位已经满了，先撤下一张或扩建店铺'); return; }
   if (state.retailListings.some(l => l.key === key)) { flash('这张卡已经在陈列了'); return; }
-  state.retailListings.push({ key, pricePct: RETAIL_PRICE_OPTIONS.includes(pricePct) ? pricePct : 110 });
+  state.retailListings.push({ key, pricePct: RETAIL_PRICE_OPTIONS.includes(pricePct) ? pricePct : 110, location: nextRetailLocation() });
   addLog(`🛍️ ${cardPool[parseKey(key).id].name} 已上架店内陈列`, 'good');
   renderAll();
 }
@@ -1172,7 +1340,7 @@ function listHighestValueCards() {
     })
     .slice(0, freeSlots);
   if (!candidates.length) { flash('没有可上架的未占用卡牌'); return; }
-  candidates.forEach(key => state.retailListings.push({ key, pricePct: 110 }));
+  candidates.forEach(key => state.retailListings.push({ key, pricePct: 110, location: nextRetailLocation() }));
   addLog(`🛍️ 已自动上架 ${candidates.length} 张当前价值最高的未占用卡牌`, 'good');
   renderAll();
 }
@@ -1203,7 +1371,10 @@ function retailSaleChance(listing) {
   const themeFactor = state.themes.includes(t.archetype) ? 1.12 : 1;
   const hotFactor = t.archetype === hottestArchetype() ? 1.12 : 1;
   const seasonFactor = s === curSeason() ? 1.08 : isRotated(s) ? 0.72 : 0.94;
-  return clamp(0.32 * retailPriceFactor(listing.pricePct) * heatFactor * promoFactor * themeFactor * hotFactor * seasonFactor, 0.03, 0.92);
+  const branch = listing.location && listing.location !== 'main' ? branchOf(listing.location) : null;
+  if (branch && (branch.activeToday === false || branch.capital < branchDef(branch).dailyCost)) return 0;
+  const specialization = branch ? (branchDef(branch).match(t, s, listing) ? 1.4 : 0.88) : 1;
+  return clamp(0.32 * retailPriceFactor(listing.pricePct) * heatFactor * promoFactor * themeFactor * hotFactor * seasonFactor * specialization * (1 + prestigeTrafficBonus()), 0.03, 0.94);
 }
 
 function retailChanceText(listing) {
@@ -1219,10 +1390,26 @@ function retailChanceText(listing) {
 
 function processRetailSales() {
   cleanRetailListings();
-  const capacity = storeDef().customers + Math.floor(state.upgrades.promo / 2) + state.storeBranches;
+  const business = ensureSeasonBusiness();
+  let operatingCost = 0;
+  state.branchStores.forEach(branch => {
+    const def = branchDef(branch);
+    branch.activeToday = branch.capital >= def.dailyCost;
+    if (!branch.activeToday) return;
+    branch.capital -= def.dailyCost;
+    branch.seasonProfit -= def.dailyCost;
+    branch.lifetimeProfit -= def.dailyCost;
+    operatingCost += def.dailyCost;
+  });
+  business.branchCosts += operatingCost;
+  const activeBranches = state.branchStores.filter(b => b.activeToday).length;
+  const capacity = storeDef().customers + Math.floor(state.upgrades.promo / 2) + activeBranches;
   const shuffled = [...state.retailListings].sort(() => Math.random() - 0.5);
   const sold = [];
   let gross = 0;
+  let net = 0;
+  let mainNet = 0;
+  let branchNet = 0;
   for (const listing of shuffled) {
     if (sold.length >= capacity || Math.random() >= retailSaleChance(listing)) continue;
     if (!(state.collection[listing.key] > 0)) continue;
@@ -1231,18 +1418,31 @@ function processRetailSales() {
     state.collection[listing.key]--;
     if (state.collection[listing.key] <= 0) delete state.collection[listing.key];
     gross += price;
-    sold.push({ ...listing, name: cardPool[id].name, price });
+    const saleNet = Math.round(price * retailNetRate());
+    const branch = listing.location && listing.location !== 'main' ? branchOf(listing.location) : null;
+    if (branch) {
+      branch.capital += saleNet;
+      branch.seasonSales++; branch.lifetimeSales++;
+      branch.seasonProfit += saleNet; branch.lifetimeProfit += saleNet;
+      branchNet += saleNet;
+    } else {
+      state.money += saleNet;
+      mainNet += saleNet;
+    }
+    net += saleNet;
+    sold.push({ ...listing, name: cardPool[id].name, price, net: saleNet });
   }
   const soldKeys = new Set(sold.map(x => x.key));
   state.retailListings = state.retailListings.filter(l => !soldKeys.has(l.key));
-  const net = Math.round(gross * retailNetRate());
   if (sold.length) {
-    state.money += net;
     recordProgress('cardsSold', sold.length);
-    addLog(`🛍️ 店内零售成交 ${sold.length} 张，扣除运营成本后收入 ¥${net}`, 'good');
-    addTrade(`店内售出 ${sold.map(x => x.name).join('、')}，回款 ¥${net}`, 'good');
+    recordProgress('tradeDeals', sold.length);
+    recordProgress('moneyEarned', net);
+    addLog(`🛍️ 全店零售成交 ${sold.length} 张，净回款 ¥${net}${branchNet ? `（分店留存 ¥${branchNet}）` : ''}`, 'good');
+    addTrade(`店内售出 ${sold.map(x => x.name).join('、')}，总回款 ¥${net}`, 'good');
   }
-  state.lastRetailReport = { day: state.day, sales: sold.length, gross, net };
+  business.retailNet += net;
+  state.lastRetailReport = { day: state.day, sales: sold.length, gross, net, mainNet, branchNet, operatingCost, activeBranches };
   return state.lastRetailReport;
 }
 
@@ -2505,6 +2705,7 @@ function moverText(changes, dir) {
 
 // 新赛季开启：全卡数值重投，并滚动主题体系。
 function seasonEvent() {
+  finalizeStoreRating(curSeason() - 1);
   const changes = rerollSeasonStats();
   resetCommissionSeason(true);
   addLog(`🗓️ 第 ${curSeason()} 赛季开启！S${curSeason() - 1} 卡牌估值仅降 5%，S${Math.max(1, curSeason() - 3)} 及更早版本退环境`, 'good');
@@ -2516,6 +2717,7 @@ function seasonEvent() {
   state.themes = rollThemes();
   const names = state.themes.map(a => `${ARCHETYPES[a].emoji}${ARCHETYPES[a].name}`).join(' · ');
   addLog(`🎯 本赛季主题体系：${names}，主题体系使用率提升`, 'good');
+  state.seasonBusiness = freshSeasonBusiness();
 }
 
 function dailyEvent() {
@@ -2589,6 +2791,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
     : `<div class="settlement-empty">${empty}</div>`;
   const seasonExtras = seasonChanged ? (() => {
     const rotated = curSeason() - 3;
+    const rating = state.storeRatings.find(x => x.season === snapshot.season);
     const deltas = cardPool.filter(t => t.seasonDelta && t.seasonDelta.season === curSeason())
       .sort((a, b) => Math.abs(b.seasonDelta.powerPct) - Math.abs(a.seasonDelta.powerPct)).slice(0, 5);
     return `<section class="settlement-season">
@@ -2601,6 +2804,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
         const pct = t.seasonDelta.powerPct;
         return `<span>${t.name} <b class="${pct >= 0 ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}%</b></span>`;
       }).join('')}</div>
+      ${rating ? `<div class="settlement-rating"><div class="rating-medal grade-${rating.grade.toLowerCase()}">${rating.grade}</div><div><small>S${rating.season} 卡店评级</small><strong>${rating.name} · ${rating.score} 分</strong><p>利润 ${rating.components.profit}/30 · 委托 ${rating.components.commissions}/15 · 图鉴 ${rating.components.collection}/15 · 成交 ${rating.components.deals}/15 · 关系 ${rating.components.relationships}/15 · 挑战 ${rating.components.challenges}/10</p></div><b>+¥${rating.cash}<br>+${rating.rep} 声望</b></div>${rating.annual ? `<div class="settlement-annual ${rating.annual.won ? 'won' : ''}">🏆 四季年度评选 · 均分 ${rating.annual.avg} · ${rating.annual.won ? '成功获奖' : '未达 63 分获奖线'}</div>` : ''}` : ''}
     </section>`;
   })() : '';
   return `<header class="settlement-head${seasonChanged ? ' season-up' : ''}">
@@ -2613,7 +2817,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
       <div><small>藏品估值</small><strong class="${collectionValue >= snapshot.collectionValue ? 'up' : 'down'}">${signedMoney(collectionValue - snapshot.collectionValue)}</strong><em>现值 ¥${collectionValue}</em></div>
       <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
     </div>
-    <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}` : '今日没有顾客成交'}</b></div>
+    <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}${state.lastRetailReport.branchNet ? ` · 分店留存 ¥${state.lastRetailReport.branchNet}` : ''}` : '今日没有顾客成交'}${state.lastRetailReport.operatingCost ? ` · 分店成本 ¥${state.lastRetailReport.operatingCost}` : ''}</b></div>
     <div class="settlement-retail"><span>🏷️ 寄售与拍卖</span><b>${state.lastMarketReport.consignSold || state.lastMarketReport.auctionsSold ? `寄售 ${state.lastMarketReport.consignSold} 笔 / 拍卖 ${state.lastMarketReport.auctionsSold} 场 · 净收入 ¥${state.lastMarketReport.consignNet + state.lastMarketReport.auctionNet}` : '今日没有渠道成交'}</b></div>
     <div class="settlement-retail"><span>🚚 批发到货</span><b>${state.lastWholesaleReport.orders ? `${state.lastWholesaleReport.orders} 批 · ${state.lastWholesaleReport.cards} 张 · 当前估值 ¥${state.lastWholesaleReport.value}` : '今日没有新批次到货'}</b></div>
     ${seasonExtras}
@@ -2847,12 +3051,15 @@ function renderStorefront() {
   const visualSlotCount = Math.min(12, storeShelfSlots());
   const emptySlots = Array.from({ length: Math.max(0, visualSlotCount - Math.min(12, state.retailListings.length)) }, () => '<span class="store-empty-slot">＋</span>').join('');
   const branchShelfBadge = storeShelfSlots() > 12 ? `<span class="store-branch-shelves">分店货架 +${storeShelfSlots() - 12}</span>` : '';
+  const branchNetwork = state.branchStores.length ? `<div class="store-branch-network" title="连锁分店">${state.branchStores.map(b => `<span class="branch-pin branch-pin-${b.type}${b.capital < branchDef(b).dailyCost ? ' offline' : ''}">${branchDef(b).icon}</span>`).join('')}</div>` : '';
   const rows = state.retailListings.map((l, i) => {
     const { id, s } = parseKey(l.key);
     const t = cardPool[id];
     const value = cardValue(t, s);
+    const branch = l.location && l.location !== 'main' ? branchOf(l.location) : null;
+    const locationName = branch ? `${branchDef(branch).icon}${branchDef(branch).name}` : '🏬 总店';
     return `<div class="retail-row">
-      <div><b>${t.name}</b><small>S${s} · 行情 ¥${value} · ${retailChanceText(l)}</small></div>
+      <div><b>${t.name}</b><small>${locationName} · S${s} · 行情 ¥${value} · ${retailChanceText(l)}</small></div>
       <select onchange="setRetailPrice(${i}, this.value)" aria-label="${t.name}店内售价">
         ${RETAIL_PRICE_OPTIONS.map(p => `<option value="${p}" ${p === l.pricePct ? 'selected' : ''}>${p}% · ¥${Math.round(value * p / 100)}</option>`).join('')}
       </select>
@@ -2863,14 +3070,31 @@ function renderStorefront() {
     ? `<button class="btn btn-primary" type="button" onclick="upgradeStore()" ${blockers.length ? 'disabled' : ''}>扩建为${next.name} · ¥${next.cost}</button>
       <small>${blockers.length ? `还需：${blockers.join(' · ')}` : `条件已满足 · 新增 ${next.slots - def.slots} 个陈列位`}</small>`
     : state.storeBranches < BRANCH_MAX
-      ? `<button class="btn btn-primary" type="button" onclick="openStoreBranch()" ${state.money < branchCost() ? 'disabled' : ''}>开设第 ${state.storeBranches + 1} 家分店 · ¥${branchCost()}</button>
-        <small>${state.money < branchCost() ? `还需准备建设费 ¥${branchCost()}` : `货架位 +${BRANCH_SLOTS} · 每日最大成交量 +1`}</small>`
+      ? (() => {
+          const type = BRANCH_TYPES[storefrontUI.branchType] || BRANCH_TYPES.budget;
+          const total = branchCost() + type.reserve;
+          return `<div class="branch-open-controls"><select id="branchTypeSelect" onchange="storefrontUI.branchType=this.value;renderStorefront()">${Object.entries(BRANCH_TYPES).map(([key, x]) => `<option value="${key}" ${storefrontUI.branchType === key ? 'selected' : ''}>${x.icon} ${x.name}</option>`).join('')}</select>
+            <button class="btn btn-primary" type="button" onclick="openStoreBranch()" ${state.money < total ? 'disabled' : ''}>开设第 ${state.storeBranches + 1} 家分店 · ¥${total}</button></div>
+            <small>建设 ¥${branchCost()} + 周转金 ¥${type.reserve} · ${type.desc}</small>`;
+        })()
       : '<span class="store-maxed">全国连锁网络已全部建成</span>';
   const report = state.lastRetailReport && state.lastRetailReport.day
     ? `上次营业：售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}`
     : '尚无营业记录 · 进入下一天后顾客会尝试购买';
+  const lastRating = state.storeRatings.at(-1);
+  const ratingBadge = lastRating ? `<span class="store-rating-badge grade-${lastRating.grade.toLowerCase()}"><b>${lastRating.grade}</b>${lastRating.name} · ${lastRating.score}分</span>` : '<span class="store-rating-badge pending">首个赛季结束后评级</span>';
+  const branchCards = state.branchStores.length ? state.branchStores.map((branch, i) => {
+    const type = branchDef(branch);
+    const active = branch.capital >= type.dailyCost;
+    const withdrawable = Math.max(0, Math.floor(branch.capital - type.reserve));
+    return `<article class="branch-card branch-${branch.type}${active ? '' : ' inactive'}">
+      <div class="branch-card-head"><span>${type.icon}</span><div><b>第 ${i + 1} 分店 · ${type.name}</b><small>${type.desc}</small></div><em>${active ? '营业中' : '缺少周转金'}</em></div>
+      <div class="branch-numbers"><span>周转金 <b>¥${branch.capital}</b></span><span>日成本 <b>¥${type.dailyCost}</b></span><span>本季利润 <b class="${branch.seasonProfit >= 0 ? 'up' : 'down'}">${signedMoney(branch.seasonProfit)}</b></span><span>累计成交 <b>${branch.lifetimeSales}</b></span></div>
+      <div class="branch-actions"><select onchange="changeBranchType(${i},this.value)" title="改造费 ¥5000">${Object.entries(BRANCH_TYPES).map(([key, x]) => `<option value="${key}" ${branch.type === key ? 'selected' : ''}>${x.icon}${x.name}</option>`).join('')}</select><button class="btn btn-dim" onclick="fundBranch(${i})" ${state.money <= 0 ? 'disabled' : ''}>调拨 ¥1000</button><button class="btn btn-good" onclick="withdrawBranchProfit(${i})" ${!withdrawable ? 'disabled' : ''}>归集 ¥${withdrawable}</button></div>
+    </article>`;
+  }).join('') : '<div class="branch-empty">连锁品牌建成后可以开设不同定位的分店。</div>';
   $('storefront').innerHTML = `<div class="storefront-top">
-      <div><span class="store-eyebrow">STORE LEVEL ${state.storeLevel}</span><h2>${def.icon} ${def.name}${state.storeBranches ? ` · ${state.storeBranches + 1} 家门店` : ''}</h2><p>${report}</p></div>
+      <div><span class="store-eyebrow">STORE LEVEL ${state.storeLevel}</span><h2>${def.icon} ${def.name}${state.storeBranches ? ` · ${state.storeBranches + 1} 家门店` : ''}</h2><p>${report}</p><div class="store-rating-line">${ratingBadge}<span>品牌声望 ${state.storePrestige} · 全店客流 +${Math.round(prestigeTrafficBonus() * 100)}%</span></div></div>
       <div class="store-upgrade-action">${nextText}</div>
     </div>
     <div id="storeSceneViewport" class="store-scene-viewport">
@@ -2883,8 +3107,10 @@ function renderStorefront() {
       <button class="store-zone store-counter" type="button" onclick="location.hash='#/market'" title="市场渠道 Lv.${state.upgrades.broker}"><span>收银台</span><b>渠道 Lv.${state.upgrades.broker}</b></button>
       <div class="store-crowd crowd-${Math.min(5, state.upgrades.promo)}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="store-shelves" aria-label="店内陈列">${shelfCards}${emptySlots}${branchShelfBadge}</div>
+      ${branchNetwork}
     </div></div>
     <div class="store-pan-hint" aria-hidden="true">← 左右滑动查看完整店铺 →</div>
+    <div class="branch-manager"><div class="branch-manager-head"><div><h3>连锁分店</h3><p>分店货架自动承接总店放不下的陈列卡；销售回款留在门店周转金中，需手动归集利润。</p></div></div><div class="branch-grid">${branchCards}</div></div>
     <div class="retail-manager">
       <div class="retail-manager-head"><div><h3>店内陈列</h3><p>${state.retailListings.length}/${storeShelfSlots()} 个陈列位 · 委托占用卡不会被自动上架 · 成交扣除 ${Math.round((1 - retailNetRate()) * 100)}% 运营成本</p></div></div>
       <div class="retail-add">
@@ -3596,6 +3822,7 @@ function init() {
     addLog('📂 已读取存档，欢迎回来！');
   }
   if (!state.wholesaleOffers.length) refreshWholesaleOffers();
+  ensureSeasonBusiness();
   checkAchievements();
   renderAll();
   renderRoute();
