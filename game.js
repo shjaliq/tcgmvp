@@ -56,6 +56,10 @@ const PATCH_CHANCE = 0.30;        // 每天出平衡补丁的概率
 
 const ROUTES = ['home', 'shop', 'market', 'private', 'commission', 'achievements', 'collection', 'upgrade', 'news'];
 const collectionView = { batchMode: false, selected: new Set() };
+const COLLECTION_FX_BUDGET = 3;
+const COLLECTION_FX_ROUND_MS = 4400;
+let collectionFxObserver = null;
+let collectionFxTimer = null;
 const marketServiceUI = { consignPct: 115, reservePct: 110 };
 const storefrontUI = { branchType: 'budget' };
 
@@ -3484,7 +3488,48 @@ function renderCollection() {
       batchSelectable: collectionView.batchMode && !isCardLocked(e.k) && state.collection[e.k] > reservedNormalQty(e.k), selected: collectionView.selected.has(e.k),
     })).join('');
   el.innerHTML = specialHTML + normalHTML || `<div class="empty">${totalKinds ? '没有符合当前筛选条件的卡牌' : '还没有卡牌，去「🎁 开包」页买包开卡吧！'}</div>`;
+  setupCollectionEffects();
   updateBatchSaleSummary();
+}
+
+function setupCollectionEffects() {
+  if (collectionFxObserver) {
+    collectionFxObserver.disconnect();
+    collectionFxObserver = null;
+  }
+  if (collectionFxTimer) {
+    clearInterval(collectionFxTimer);
+    collectionFxTimer = null;
+  }
+  const container = $('collection');
+  if (!container) return;
+  const cards = [...container.querySelectorAll('.special-card, .rar-UR:not(.special-card)')];
+  if (!cards.length) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  // Rotate a small compositor budget through visible cards. Hover/focus is
+  // handled by CSS, so any card the player inspects still reacts immediately.
+  if (!('IntersectionObserver' in window)) {
+    cards.slice(0, 1).forEach(card => card.classList.add('card-fx-active'));
+    return;
+  }
+  const visible = new Set();
+  let cursor = 0;
+  const refresh = (advance = false) => {
+    const inView = cards.filter(card => visible.has(card));
+    if (advance && inView.length > COLLECTION_FX_BUDGET) cursor = (cursor + COLLECTION_FX_BUDGET) % inView.length;
+    else if (cursor >= inView.length) cursor = 0;
+    cards.forEach(card => card.classList.remove('card-fx-active'));
+    for (let i = 0; i < Math.min(COLLECTION_FX_BUDGET, inView.length); i++) {
+      inView[(cursor + i) % inView.length].classList.add('card-fx-active');
+    }
+  };
+  collectionFxObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => entry.isIntersecting ? visible.add(entry.target) : visible.delete(entry.target));
+    refresh();
+  }, { rootMargin: '80px 0px', threshold: 0.01 });
+  cards.forEach(card => collectionFxObserver.observe(card));
+  collectionFxTimer = setInterval(() => refresh(true), COLLECTION_FX_ROUND_MS);
 }
 
 function renderMarket() {

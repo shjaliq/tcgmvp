@@ -596,6 +596,36 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 }
 .special-card.finish-signed::before, .special-card.finish-numbered::before { background-image: linear-gradient(118deg, transparent 25%, #fff2a488 45%, #ffffffaa 50%, #ff9d6688 56%, transparent 75%); }
 @keyframes specialShine { 0%, 28% { background-position: 120% 0; } 72%, 100% { background-position: -120% 0; } }
+
+/* 收藏量大时限制持续扫光数量；静止卡仍保留特效材质。 */
+#collection .card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 430px;
+}
+#collection .special-card::before {
+  animation: none;
+  background-position: 50% 0;
+  opacity: .58;
+}
+#collection .special-card.card-fx-active::before,
+#collection .special-card:hover::before,
+#collection .special-card:focus::before,
+#collection .special-card:focus-within::before {
+  animation: specialShine 4.2s ease-in-out infinite;
+  opacity: 1;
+}
+#collection .rar-UR .card-art::after {
+  animation: none;
+  background-position: 50% 0;
+  opacity: .55;
+}
+#collection .rar-UR:not(.special-card).card-fx-active .card-art::after,
+#collection .rar-UR:not(.special-card):hover .card-art::after,
+#collection .rar-UR:not(.special-card):focus .card-art::after,
+#collection .rar-UR:not(.special-card):focus-within .card-art::after {
+  animation: holo 2.6s linear infinite;
+  opacity: 1;
+}
 .special-card-badge {
   position: absolute; z-index: 4; left: 6px; top: 6px; max-width: calc(100% - 12px);
   padding: 3px 7px; border: 1px solid #ffffff99; border-radius: 10px;
@@ -1957,4 +1987,6 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   .shop-pack, .pack-face::after, .opening-hint { animation: none; }
   .nav-scroll-cue { animation: none !important; }
   .special-card::before { animation: none; background-position: 50% 0; }
+  #collection .special-card::before,
+  #collection .rar-UR .card-art::after { animation: none !important; }
 }
