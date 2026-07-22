@@ -111,6 +111,7 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
         <span class="rar-tag rar-bg-SR">SR</span> 10%
         <span class="rar-tag rar-bg-UR">UR</span> 2%
       </div>
+      <div class="special-odds">✦ 每张约 1.85% 出现特效 · 签名与编号版极其稀有</div>
       <button id="buyPackBtn" class="btn btn-primary big" onclick="buyPack()">开一包</button>
       <label class="skip-pack-option">
         <input id="skipPackAnimation" type="checkbox" onchange="setSkipPackAnimation(this.checked)">
@@ -150,7 +151,7 @@ try { if (localStorage.getItem('tcgmvp_theme') === 'dark') document.documentElem
   <div class="page" id="page-private">
     <section class="panel private-trade-head">
       <h2>🤝 今日来客 <span class="h2-sub" id="privateGuestCount"></span></h2>
-      <p class="private-help">每位商人都有独立偏好、收购预算与耐心。可以接受来价、尝试讲价，也可以主动拿收藏向对方询价。</p>
+      <p class="private-help">每位商人都有独立偏好、收购预算与耐心。累计声望会打开更高收藏圈层，「藏家人脉」提高高级来客出现率；签名和编号私藏主要由他们带来。</p>
       <div id="privateGuests" class="private-guests"></div>
     </section>
     <section class="panel private-inventory-panel" id="privateInventoryPanel">

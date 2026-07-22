@@ -9,6 +9,22 @@ const RARITIES = {
   UR: { base: 240 },
 };
 
+const SPECIAL_FINISHES = {
+  foil:     { name: '闪膜版', icon: '✦', mult: 1.7 },
+  holo:     { name: '镭射版', icon: '◇', mult: 2.7 },
+  signed:   { name: '签名版', icon: '✍', mult: 5.5 },
+  numbered: { name: '限量编号版', icon: '#', mult: 8.0 },
+};
+
+const NPC_QUALITY = [
+  { name: '普通玩家', threshold: 0, budget: null },
+  { name: '体系爱好者', threshold: 20, budget: [250, 500] },
+  { name: '资深藏家', threshold: 60, budget: [500, 1500] },
+  { name: '高端卡商', threshold: 120, budget: [1500, 4000] },
+  { name: '私人收藏家', threshold: 250, budget: [4000, 10000] },
+  { name: '传奇藏家', threshold: 500, budget: [10000, 20000] },
+];
+
 const MARKET_SIZE = 12;
 const BASE_MARKET_BUY_MARKUP = 1.15; // 公开市场基础买入加价 15%
 const BASE_MARKET_SELL_RATE = 0.80;  // 公开市场基础回收率 80%
@@ -75,6 +91,7 @@ const REPUTATION_UPGRADES = {
   concurrent: { name: '项目管理', icon: '🗂️', maxLv: 1, costs: [18], desc: '同时进行上限 +1' },
   reward:     { name: '金牌口碑', icon: '💰', maxLv: 2, costs: [16, 32], desc: '委托固定报酬 +5%' },
   carryLock:  { name: '长期合约', icon: '🤝', maxLv: 1, costs: [25], desc: '跨赛季保留已锁定的目标委托' },
+  collectors: { name: '藏家人脉', icon: '💎', maxLv: 5, costs: [10, 22, 40, 65, 100], desc: '提高高级藏家来访率；高等级来客可能出售签名与编号卡' },
 };
 
 const RUN_CHALLENGES = [
@@ -103,6 +120,8 @@ const CAREER_MILESTONE_GROUPS = [
   { key: 'urAcquired', icon: '✨', name: '传说猎手', unit: '张 UR', tiers: [[5, 10], [30, 25], [150, 55]] },
   { key: 'uniqueOwnedMax', icon: '📚', name: '图鉴规模', unit: '种', tiers: [[30, 8], [100, 25], [160, 60]] },
   { key: 'archetypesMastered', icon: '🧩', name: '体系博物馆', unit: '套完整体系', tiers: [[1, 15], [5, 40], [10, 80]] },
+  { key: 'specialCardsAcquired', icon: '🌈', name: '特效收藏家', unit: '张特效卡', tiers: [[1, 8], [10, 25], [50, 60]] },
+  { key: 'premiumSpecialsAcquired', icon: '✍️', name: '顶级藏品', unit: '张签名/编号卡', tiers: [[1, 15], [5, 40], [20, 90]] },
 ];
 
 const emptyProgressStats = () => ({
@@ -111,6 +130,7 @@ const emptyProgressStats = () => ({
   moneyEarned: 0, maxOwned: 0, eliteHighScore: 0,
   maxProfit: 0, reputationEarned: 0, reputationSpent: 0,
   coresAcquired: 0, urAcquired: 0, uniqueOwnedMax: 0, archetypesMastered: 0,
+  specialCardsAcquired: 0, premiumSpecialsAcquired: 0,
 });
 
 const career = { stats: emptyProgressStats(), completed: {}, challenges: {}, masteredArchetypes: {}, points: 0 };
@@ -492,12 +512,66 @@ const cardValueAtFactor = (t, factor) =>
   Math.max(1, Math.round(RARITIES[t.rarity].base * heatMult(hiddenHeat(t)) * factor));
 const cardValue = (t, s) => cardValueAtFactor(t, seasonFactor(s));
 
+function specialSerialFactor(serial) {
+  if (!serial) return 1;
+  if (serial === 1) return 2.5;
+  if (serial <= 10) return 1.6;
+  if (serial <= 30) return 1.25;
+  return 1;
+}
+
+function specialValue(card) {
+  const t = cardPool[card.id];
+  if (!t || !SPECIAL_FINISHES[card.finish]) return 0;
+  const finish = SPECIAL_FINISHES[card.finish];
+  const permanentPremium = cardValueAtFactor(t, 1) * (finish.mult - 1) * specialSerialFactor(card.serial);
+  return Math.max(1, Math.round(cardValue(t, card.s) + permanentPremium));
+}
+
+function specialLabel(card) {
+  if (!card || !SPECIAL_FINISHES[card.finish]) return '';
+  return `${SPECIAL_FINISHES[card.finish].icon} ${SPECIAL_FINISHES[card.finish].name}${card.serial ? ` · ${String(card.serial).padStart(3, '0')}/100` : ''}`;
+}
+
+function makeSpecialCard(id, s, finish, source, serial = 0) {
+  return {
+    uid: `sp-${state.day}-${Math.random().toString(36).slice(2, 10)}`,
+    id, s, finish, serial: finish === 'numbered' ? (serial || rand(1, 100)) : 0,
+    source: source || '未知来源', locked: true,
+  };
+}
+
+function rollPackFinish() {
+  const r = Math.random();
+  if (r < 0.0001) return 'numbered';
+  if (r < 0.0005) return 'signed';
+  if (r < 0.0035) return 'holo';
+  if (r < 0.0185) return 'foil';
+  return '';
+}
+
+function rollMarketFinish() {
+  const r = Math.random();
+  if (r < 0.0001) return 'numbered';
+  if (r < 0.0004) return 'signed';
+  if (r < 0.0019) return 'holo';
+  if (r < 0.0099) return 'foil';
+  return '';
+}
+
+function addSpecialCard(card) {
+  state.specialCards.push(card);
+  recordProgress('specialCardsAcquired', 1);
+  if (card.finish === 'signed' || card.finish === 'numbered') recordProgress('premiumSpecialsAcquired', 1);
+}
+
 // ==================== 游戏状态 ====================
 const state = {
   day: 1,
   money: 300,
   collection: {},   // "templateId_赛季" -> 数量
   cardLocks: {},    // 收藏保护：锁定后不参与自动上架和出售
+  specialCards: [], // 独立特效卡实例 [{uid,id,s,finish,serial,source,locked}]
   market: [],       // [{id, s, price}]
   dealers: [],      // 今日私下交易访客实例
   offers: [],       // [{dealerId, mode:'buy'|'sell', id, s, price, rounds}]
@@ -527,7 +601,8 @@ const state = {
   commissionSeason: 1,
   reputation: 0,
   lifetimeReputation: 0,
-  reputationUpgrades: { board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0 },
+  collectorHeat: 0,
+  reputationUpgrades: { board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0, collectors: 0 },
   runStats: emptyProgressStats(),
   runStartWorth: 300,
 };
@@ -538,6 +613,7 @@ function netWorth() {
     const { id, s } = parseKey(k);
     v += cardValue(cardPool[id], s) * state.collection[k];
   }
+  v += state.specialCards.reduce((sum, card) => sum + specialValue(card), 0);
   return v;
 }
 
@@ -571,6 +647,7 @@ function saveGame() {
       money: state.money,
       collection: state.collection,
       cardLocks: state.cardLocks,
+      specialCards: state.specialCards,
       market: state.market,
       dealers: state.dealers,
       offers: state.offers,
@@ -599,6 +676,7 @@ function saveGame() {
       commissionSeason: state.commissionSeason,
       reputation: state.reputation,
       lifetimeReputation: state.lifetimeReputation,
+      collectorHeat: state.collectorHeat,
       reputationUpgrades: state.reputationUpgrades,
       runStats: state.runStats,
       runStartWorth: state.runStartWorth,
@@ -627,15 +705,18 @@ function loadCareer() {
 }
 
 function currentOwnedCards() {
-  return Object.values(state.collection).reduce((sum, n) => sum + n, 0);
+  return Object.values(state.collection).reduce((sum, n) => sum + n, 0) + state.specialCards.length;
 }
 
 function checkAchievements() {
   state.runStats.maxOwned = Math.max(state.runStats.maxOwned || 0, currentOwnedCards());
-  const uniqueOwned = Object.keys(state.collection).length;
+  const uniqueOwned = new Set([
+    ...Object.keys(state.collection),
+    ...state.specialCards.map(c => `${c.id}_${c.s}_${c.finish}_${c.serial || 0}`),
+  ]).size;
   state.runStats.uniqueOwnedMax = Math.max(state.runStats.uniqueOwnedMax || 0, uniqueOwned);
   career.stats.uniqueOwnedMax = Math.max(career.stats.uniqueOwnedMax || 0, uniqueOwned);
-  const ownedTemplateIds = new Set(Object.keys(state.collection).map(k => parseKey(k).id));
+  const ownedTemplateIds = new Set([...Object.keys(state.collection).map(k => parseKey(k).id), ...state.specialCards.map(c => c.id)]);
   const completeArchetypes = Object.keys(ARCHETYPES).filter(arch =>
     cardPool.filter(t => t.archetype === arch).every(t => ownedTemplateIds.has(t.id)));
   state.runStats.archetypesMastered = Math.max(state.runStats.archetypesMastered || 0, completeArchetypes.length);
@@ -702,13 +783,18 @@ function loadGame() {
       state.collection[k.includes('_') ? k : `${k}_1`] = v;
     }
     state.cardLocks = Object.fromEntries(Object.keys(d.cardLocks || {}).filter(k => state.collection[k]).map(k => [k, true]));
+    state.specialCards = (Array.isArray(d.specialCards) ? d.specialCards : []).filter(c =>
+      c && cardPool[c.id] && SPECIAL_FINISHES[c.finish] && Number.isFinite(c.s))
+      .map(c => ({ ...c, uid: c.uid || `sp-load-${Math.random().toString(36).slice(2)}`, locked: c.locked !== false }));
     state.market = (d.market || []).map(l => ({ ...l, s: l.s || 1 }));
     state.dealers = (Array.isArray(d.dealers) ? d.dealers : []).map(dealer => {
       const profile = NPC_PROFILES.find(p => p.key === dealer.profile);
-      const budgetCap = profile ? profile.budget[1] : 200;
+      const quality = clamp(Number(dealer.quality) || 0, 0, NPC_QUALITY.length - 1);
+      const budgetCap = quality ? NPC_QUALITY[quality].budget[1] : profile ? profile.budget[1] : 200;
       const maxTrades = Math.max(2, dealer.maxTrades || (profile ? rand(profile.trades[0], profile.trades[1]) : 2));
       return {
         ...dealer,
+        quality,
         budget: Math.min(dealer.budget || 0, budgetCap),
         maxBudget: Math.min(dealer.maxBudget || budgetCap, budgetCap),
         maxTrades,
@@ -753,8 +839,9 @@ function loadGame() {
     state.commissionSeason = d.commissionSeason || curSeason();
     state.reputation = Math.max(0, d.reputation || 0);
     state.lifetimeReputation = Math.max(state.reputation, d.lifetimeReputation || 0);
+    state.collectorHeat = Math.max(0, Number(d.collectorHeat) || 0);
     state.reputationUpgrades = {
-      board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0,
+      board: 0, locks: 0, seasonCap: 0, concurrent: 0, reward: 0, carryLock: 0, collectors: 0,
       ...(d.reputationUpgrades || {}),
     };
     state.runStats = { ...emptyProgressStats(), ...(d.runStats || {}) };
@@ -949,6 +1036,28 @@ function toggleCardLock(key) {
     state.retailListings = state.retailListings.filter(l => l.key !== key);
     collectionView.selected.delete(key);
   }
+  renderAll();
+}
+
+function toggleSpecialLock(uid) {
+  const card = state.specialCards.find(c => c.uid === uid);
+  if (!card) return;
+  card.locked = !card.locked;
+  renderAll();
+}
+
+function sellSpecialToMarket(uid) {
+  const index = state.specialCards.findIndex(c => c.uid === uid);
+  if (index < 0) return;
+  const card = state.specialCards[index];
+  if (card.locked) { flash('这张特效卡默认受保护，请先解锁'); return; }
+  const price = Math.max(1, Math.round(specialValue(card) * marketSellRate()));
+  state.specialCards.splice(index, 1);
+  state.money += price;
+  recordProgress('cardsSold', 1);
+  recordProgress('tradeDeals', 1);
+  recordProgress('moneyEarned', price);
+  addTrade(`🌈 售出【${cardPool[card.id].name}·${specialLabel(card)}】，收入 ¥${price}`);
   renderAll();
 }
 
@@ -1457,9 +1566,16 @@ function buyPack(typeKey = 'standard') {
   state.money -= def.price;
   state.packsBought++;
   state.packTypeBought[typeKey] = typeBought + 1;
-  for (const { t, s } of got) {
-    const k = keyOf(t.id, s);
-    state.collection[k] = (state.collection[k] || 0) + 1;
+  for (const item of got) {
+    const finish = rollPackFinish();
+    if (finish) {
+      item.special = makeSpecialCard(item.t.id, item.s, finish, `${def.name}开出`);
+      addSpecialCard(item.special);
+      addLog(`🌈 从${def.name}开出【${item.t.name}】${specialLabel(item.special)}！`, 'good');
+    } else {
+      const k = keyOf(item.t.id, item.s);
+      state.collection[k] = (state.collection[k] || 0) + 1;
+    }
   }
   recordProgress('packsOpened', 1);
   recordProgress('cardsOpened', got.length);
@@ -1494,8 +1610,8 @@ function revealPackResults() {
 }
 
 function showPack(got, def = PACK_TYPES.standard) {
-  $('packCards').innerHTML = got.map(({ t, s }, i) =>
-    `<div class="pack-card" style="animation-delay:${Math.min(i, 5) * 0.12}s">${cardHTML(t, { season: s })}</div>`).join('');
+  $('packCards').innerHTML = got.map(({ t, s, special }, i) =>
+    `<div class="pack-card" style="animation-delay:${Math.min(i, 5) * 0.12}s">${cardHTML(t, { season: s, special })}</div>`).join('');
   const modal = $('packModal');
   const opening = $('packOpening');
   const results = $('packResults');
@@ -1551,8 +1667,12 @@ function refreshMarket() {
   for (let i = 0; i < MARKET_SIZE; i++) {
     const t = pick(cardPool);
     const s = rollMarketSeason();
-    const price = Math.max(1, Math.round(cardValue(t, s) * marketBuyMarkup() * randf(0.95, 1.1)));
-    state.market.push({ id: t.id, s, price });
+    const finish = rollMarketFinish();
+    const special = finish ? makeSpecialCard(t.id, s, finish, '公开市场') : null;
+    const base = special ? specialValue(special) : cardValue(t, s);
+    const scarcity = finish ? (finish === 'foil' ? randf(1.3, 1.8) : randf(1.8, 3.5)) : randf(0.95, 1.1);
+    const price = Math.max(1, Math.round(base * marketBuyMarkup() * scarcity));
+    state.market.push({ id: t.id, s, price, finish: special ? special.finish : '', serial: special ? special.serial : 0 });
   }
 }
 
@@ -1561,12 +1681,16 @@ function buyFromMarket(i) {
   if (!l) return;
   if (state.money < l.price) { flash('钱不够啦！'); return; }
   state.money -= l.price;
-  const k = keyOf(l.id, l.s);
-  state.collection[k] = (state.collection[k] || 0) + 1;
+  if (l.finish) addSpecialCard(makeSpecialCard(l.id, l.s, l.finish, '公开市场', l.serial));
+  else {
+    const k = keyOf(l.id, l.s);
+    state.collection[k] = (state.collection[k] || 0) + 1;
+  }
   state.market.splice(i, 1);
   recordCardAcquisition(cardPool[l.id]);
   recordProgress('tradeDeals', 1);
-  addTrade(`🛒 从市场买入【${cardPool[l.id].name}·S${l.s}】，花费 ¥${l.price}`);
+  const variant = l.finish ? ` ${SPECIAL_FINISHES[l.finish].name}${l.serial ? ` ${String(l.serial).padStart(3, '0')}/100` : ''}` : '';
+  addTrade(`🛒 从市场买入【${cardPool[l.id].name}·S${l.s}${variant}】，花费 ¥${l.price}`);
   renderAll();
 }
 
@@ -1652,7 +1776,25 @@ function dealerReservedBudget(dealerId) {
   return original && original.mode === 'buy' ? original.price : 0;
 }
 
+function maxNpcQuality() {
+  let max = 0;
+  NPC_QUALITY.forEach((tier, i) => { if (state.lifetimeReputation >= tier.threshold) max = i; });
+  return max;
+}
+
+function rollNpcQuality(index) {
+  const max = maxNpcQuality();
+  if (!max) return 0;
+  const network = state.reputationUpgrades.collectors || 0;
+  const guaranteeDays = Math.max(3, 8 - max - Math.floor(network / 2));
+  if (index === 0 && state.collectorHeat >= guaranteeDays - 1) return max;
+  const chance = Math.min(0.75, 0.08 + network * 0.08 + max * 0.035);
+  if (Math.random() >= chance) return 0;
+  return 1 + Math.floor(Math.pow(Math.random(), 1.6) * max);
+}
+
 function createDealer(profile, index) {
+  const quality = rollNpcQuality(index);
   const dealer = {
     id: `D${state.day}-${index}-${rand(1000, 9999)}`,
     profile: profile.key,
@@ -1664,7 +1806,9 @@ function createDealer(profile, index) {
     flexibility: randf(0.02, 0.16),
     maxTrades: rand(profile.trades[0], profile.trades[1]),
     tradesDone: 0,
+    quality,
   };
+  if (quality > 0) dealer.budget = rand(NPC_QUALITY[quality].budget[0], NPC_QUALITY[quality].budget[1]);
   dealer.maxBudget = dealer.budget;
   if (profile.setup) profile.setup(dealer);
   dealer.tag = profile.tag(dealer);
@@ -1708,22 +1852,51 @@ function npcSellItem(dealer) {
   for (let tries = 0; tries < 50; tries++) {
     const t = pick(cardPool);
     const s = rand(1, curSeason());
-    if (dealerPreference(dealer, t, s) >= 2) return { t, s };
+    if (dealerPreference(dealer, t, s) >= 2) return { t, s, ...rollNpcSpecial(dealer.quality || 0) };
   }
-  return { t: pick(cardPool), s: curSeason() };
+  return { t: pick(cardPool), s: curSeason(), ...rollNpcSpecial(dealer.quality || 0) };
+}
+
+function rollNpcSpecial(quality) {
+  const r = Math.random();
+  if (quality >= 5) {
+    if (r < 0.08) return { finish: 'numbered', serial: rand(1, 100) };
+    if (r < 0.30) return { finish: 'signed', serial: 0 };
+    if (r < 0.60) return { finish: 'holo', serial: 0 };
+    if (r < 0.80) return { finish: 'foil', serial: 0 };
+  } else if (quality === 4) {
+    if (r < 0.02) return { finish: 'numbered', serial: rand(1, 100) };
+    if (r < 0.12) return { finish: 'signed', serial: 0 };
+    if (r < 0.34) return { finish: 'holo', serial: 0 };
+    if (r < 0.59) return { finish: 'foil', serial: 0 };
+  } else if (quality === 3) {
+    if (r < 0.025) return { finish: 'signed', serial: 0 };
+    if (r < 0.145) return { finish: 'holo', serial: 0 };
+    if (r < 0.395) return { finish: 'foil', serial: 0 };
+  } else if (quality === 2) {
+    if (r < 0.04) return { finish: 'holo', serial: 0 };
+    if (r < 0.22) return { finish: 'foil', serial: 0 };
+  } else if (quality === 1 && r < 0.08) return { finish: 'foil', serial: 0 };
+  return { finish: '', serial: 0 };
 }
 
 function makeNpcOffer(dealer) {
   const matches = Object.keys(state.collection).filter(k => !isCardLocked(k)).map(k => ({ k, ...parseKey(k) }))
     .map(item => ({ ...item, quote: quoteCardToDealer(dealer, cardPool[item.id], item.s) }))
     .filter(item => item.quote.accepted && item.quote.score >= 1);
-  if (matches.length) {
-    const item = pick(matches);
-    return { dealerId: dealer.id, mode: 'buy', id: item.id, s: item.s, price: item.quote.price, rounds: 0, note: '' };
+  const privateItem = npcSellItem(dealer);
+  if (matches.length && !privateItem.finish && Math.random() < 0.75) {
+    const match = pick(matches);
+    return { dealerId: dealer.id, mode: 'buy', id: match.id, s: match.s, price: match.quote.price, rounds: 0, note: '' };
   }
-  const item = npcSellItem(dealer);
-  const price = Math.max(1, Math.round(cardValue(item.t, item.s) * randf(0.88, 1.08)));
-  return { dealerId: dealer.id, mode: 'sell', id: item.t.id, s: item.s, price, rounds: 0, note: '' };
+  const special = privateItem.finish ? makeSpecialCard(privateItem.t.id, privateItem.s, privateItem.finish, dealer.name, privateItem.serial) : null;
+  const value = special ? specialValue(special) : cardValue(privateItem.t, privateItem.s);
+  const price = Math.max(1, Math.round(value * randf(special ? 0.98 : 0.88, special ? 1.25 : 1.08)));
+  return {
+    dealerId: dealer.id, mode: 'sell', id: privateItem.t.id, s: privateItem.s,
+    finish: privateItem.finish, serial: privateItem.serial, price, rounds: 0,
+    note: special ? `💎 ${NPC_QUALITY[dealer.quality].name}展示的私藏` : '',
+  };
 }
 
 function makeOffers() {
@@ -1732,6 +1905,8 @@ function makeOffers() {
   state.dealers = profiles.map(createDealer);
   state.offers = [];
   state.offers = state.dealers.map(makeNpcOffer);
+  if (state.dealers.some(d => d.quality > 0)) state.collectorHeat = 0;
+  else state.collectorHeat++;
   privateTradeUI.activeDealerId = null;
 }
 
@@ -1785,11 +1960,14 @@ function acceptOffer(i) {
     if (state.money < o.price) { flash('钱不够啦！'); return; }
     state.money -= o.price;
     dealer.budget = Math.min(dealer.maxBudget, dealer.budget + Math.round(o.price * 0.25));
-    const k = keyOf(o.id, o.s);
-    state.collection[k] = (state.collection[k] || 0) + 1;
+    if (o.finish) addSpecialCard(makeSpecialCard(o.id, o.s, o.finish, dealer.name, o.serial));
+    else {
+      const k = keyOf(o.id, o.s);
+      state.collection[k] = (state.collection[k] || 0) + 1;
+    }
     recordCardAcquisition(t);
     recordProgress('tradeDeals', 1);
-    addTrade(`🤝 你从 ${dealer.name} 手中买下【${t.name}·S${o.s}】，花费 ¥${o.price}`);
+    addTrade(`🤝 你从 ${dealer.name} 手中买下【${t.name}·S${o.s}${o.finish ? ` · ${SPECIAL_FINISHES[o.finish].name}` : ''}】，花费 ¥${o.price}`);
   }
   finishDealerTrade(i, o, dealer);
   renderAll();
@@ -2281,10 +2459,11 @@ function statRollHTML(t) {
   return `<div class="stat-roll ${cls}">🎲 本季强度 ${sign}${d.powerPct}%</div>`;
 }
 
-function openCardDetail(id, s) {
+function openCardDetail(id, s, finish = '', serial = 0) {
   const t = cardPool[id];
   if (!t) return;
-  $('cardDetailContent').innerHTML = cardHTML(t, { season: s });
+  const special = finish ? { id, s, finish, serial } : null;
+  $('cardDetailContent').innerHTML = cardHTML(t, { season: s, special });
   $('cardDetailModal').classList.remove('hidden');
 }
 
@@ -2299,7 +2478,8 @@ function handleCardDetailClick(e) {
 
 function cardHTML(t, opts = {}) {
   const s = opts.season || curSeason();
-  const v = cardValue(t, s);
+  const special = opts.special || null;
+  const v = special ? specialValue({ ...special, id: t.id, s }) : cardValue(t, s);
   const sellPrice = Math.max(1, Math.round(v * marketSellRate()));
   const artSrc = artFor(t);
   const art = artSrc
@@ -2308,8 +2488,9 @@ function cardHTML(t, opts = {}) {
   const fx = t.effects.length
     ? t.effects.map(e => `<div class="fx-line">${fxText(t, e)}</div>`).join('')
     : '<div class="fx-line fx-vanilla">白板</div>';
+  const detailArgs = special ? `${t.id}, ${s}, '${special.finish}', ${special.serial || 0}` : `${t.id}, ${s}`;
   const zoomAttrs = opts.zoomable
-    ? ` role="button" tabindex="0" aria-label="放大查看${t.name}" onclick="openCardDetail(${t.id}, ${s})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail(${t.id}, ${s})}"`
+    ? ` role="button" tabindex="0" aria-label="放大查看${t.name}" onclick="openCardDetail(${detailArgs})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail(${detailArgs})}"`
     : '';
   const batchSelector = opts.batchSelectable
     ? `<label class="card-batch-check" title="选择${t.name}" onclick="event.stopPropagation()"><input type="checkbox" aria-label="选择${t.name}" onchange="toggleCollectionCard('${opts.key}', this.checked)" ${opts.selected ? 'checked' : ''}><span>✓</span></label>`
@@ -2317,17 +2498,22 @@ function cardHTML(t, opts = {}) {
   const lockButton = opts.lockable
     ? `<button class="card-lock-btn${opts.locked ? ' is-locked' : ''}" type="button" title="${opts.locked ? '解除收藏保护' : '锁定并防止出售'}" aria-label="${opts.locked ? '解锁' : '锁定'}${t.name}" onclick="event.stopPropagation();toggleCardLock('${opts.key}')">${opts.locked ? '🔒' : '🔓'}</button>`
     : '';
+  const specialLockButton = special && special.uid && opts.specialActions
+    ? `<button class="card-lock-btn${special.locked ? ' is-locked' : ''}" type="button" title="${special.locked ? '解除特效卡保护' : '锁定特效卡'}" onclick="event.stopPropagation();toggleSpecialLock('${special.uid}')">${special.locked ? '🔒' : '🔓'}</button>`
+    : '';
+  const specialBadge = special ? `<span class="special-card-badge finish-${special.finish}">${specialLabel(special)}</span>` : '';
   const coreLabel = t.coreRank === 'entry' ? 'CORE·入门' : t.coreRank === 'advanced' ? 'CORE·进阶' : 'CORE·王牌';
   return `
-  <div class="card rar-${t.rarity} art-${t.artStyle} arch-${t.archetype} tier-${t.tier}${opts.zoomable ? ' card-clickable' : ''}${opts.selected ? ' batch-selected' : ''}${opts.locked ? ' card-locked' : ''}"${zoomAttrs}>
+  <div class="card rar-${t.rarity} art-${t.artStyle} arch-${t.archetype} tier-${t.tier}${special ? ` special-card finish-${special.finish}` : ''}${opts.zoomable ? ' card-clickable' : ''}${opts.selected ? ' batch-selected' : ''}${opts.locked || (special && special.locked) ? ' card-locked' : ''}"${zoomAttrs}>
     ${batchSelector}
-    ${lockButton}
+    ${specialLockButton || lockButton}
     <div class="card-head">
       <span class="cost-gem">${t.cost}</span>
       <span class="card-name">${t.name}</span>
       <span class="rar">${t.rarity}</span>
     </div>
     <div class="card-art">${art}
+      ${specialBadge}
       ${t.tier === 'core' ? `<span class="core-seal" title="体系核心">${ARCHETYPES[t.archetype].emoji}</span>` : ''}
       <span class="stat-badge stat-atk"><i>⚔</i><b>${t.atk}</b></span>
       <span class="stat-badge stat-hp"><i>♥</i><b>${t.hp}</b></span>
@@ -2352,22 +2538,24 @@ function cardHTML(t, opts = {}) {
         ${opts.count ? `<span class="cnt">×${opts.count}</span>` : ''}
       </div>
     </div>
-    ${opts.sellBtn ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellToMarket('${opts.key}')" ${opts.locked ? 'disabled' : ''}>${opts.locked ? '🔒 已锁定' : `卖给市场 ¥${sellPrice}`}</button>` : ''}
+    ${special && special.uid && opts.specialActions ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellSpecialToMarket('${special.uid}')" ${special.locked ? 'disabled' : ''}>${special.locked ? '🔒 特效卡已保护' : `卖给市场 ¥${Math.round(v * marketSellRate())}`}</button>` : opts.sellBtn ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellToMarket('${opts.key}')" ${opts.locked ? 'disabled' : ''}>${opts.locked ? '🔒 已锁定' : `卖给市场 ¥${sellPrice}`}</button>` : ''}
   </div>`;
 }
 
-function listingHTML(t, rightHTML, s) {
+function listingHTML(t, rightHTML, s, variant = null) {
   const season = s || curSeason();
   const artSrc = artFor(t);
-  const zoomAttrs = `class="listing-art-zoom" role="button" tabindex="0" aria-label="放大查看${t.name}" onclick="openCardDetail(${t.id}, ${season})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail(${t.id}, ${season})}"`;
+  const finish = variant && variant.finish || '';
+  const serial = variant && variant.serial || 0;
+  const zoomAttrs = `class="listing-art-zoom" role="button" tabindex="0" aria-label="放大查看${t.name}" onclick="openCardDetail(${t.id}, ${season}, '${finish}', ${serial})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail(${t.id}, ${season}, '${finish}', ${serial})}"`;
   const art = artSrc
     ? `<span ${zoomAttrs}><span class="li-thumb">${ARCHETYPES[t.archetype].emoji}<img src="${artSrc}" alt="" onerror="this.remove()"></span></span>`
     : `<span ${zoomAttrs}><span class="li-art">${ARCHETYPES[t.archetype].emoji}</span></span>`;
   return `
-  <div class="listing rar-${t.rarity}">
+  <div class="listing rar-${t.rarity}${finish ? ` special-listing finish-${finish}` : ''}">
     ${art}
     <div class="li-info">
-      <div class="li-name"><span class="rar-tag rar-bg-${t.rarity}">${t.rarity}</span>${seasonTagHTML(season)} ${t.name}</div>
+      <div class="li-name"><span class="rar-tag rar-bg-${t.rarity}">${t.rarity}</span>${seasonTagHTML(season)} ${t.name}${finish ? ` <span class="special-listing-tag">${specialLabel({ finish, serial })}</span>` : ''}</div>
       <div class="li-sub">${ARCHETYPES[t.archetype].name} · ${ARTSTYLES[t.artStyle].name} · 费用${t.cost} ⚔${t.atk} ❤${t.hp} · 胜率${Math.round(t.wr)}% 使用率${Math.round(t.usage)}%${trendOf(t)}${statRollHTML(t)}</div>
     </div>
     ${rightHTML}
@@ -2479,11 +2667,11 @@ function renderStorefront() {
 }
 
 function renderHome() {
-  const totalCards = Object.values(state.collection).reduce((a, b) => a + b, 0);
+  const totalCards = Object.values(state.collection).reduce((a, b) => a + b, 0) + state.specialCards.length;
   const hot = hottestArchetype();
   $('home-money').textContent = '¥' + state.money;
   $('home-networth').textContent = '¥' + netWorth();
-  $('home-coll').textContent = `${Object.keys(state.collection).length} 种 / ${totalCards} 张`;
+  $('home-coll').textContent = `${Object.keys(state.collection).length + state.specialCards.length} 种 / ${totalCards} 张`;
   $('home-hot').textContent = `${ARCHETYPES[hot].emoji} ${ARCHETYPES[hot].name}`;
   renderStorefront();
   $('home-rumors').innerHTML = rumorsHTML();
@@ -2702,22 +2890,37 @@ function renderCollection() {
   Object.keys(state.cardLocks).forEach(k => { if (!state.collection[k]) delete state.cardLocks[k]; });
   collectionView.selected.forEach(k => { if (!state.collection[k]) collectionView.selected.delete(k); });
   const entries = filteredCollectionEntries();
-  const totalCards = allEntries.reduce((sum, e) => sum + state.collection[e.k], 0);
-  const totalVal = allEntries.reduce((sum, e) => sum + cardValue(cardPool[e.id], e.s) * state.collection[e.k], 0);
-  const lockedCount = allEntries.filter(e => isCardLocked(e.k)).length;
-  $('collSummary').innerHTML = allEntries.length
-    ? `共 <b>${allEntries.length}</b> 种 · <b>${totalCards}</b> 张 · 总市值 <b>¥${totalVal}</b>${lockedCount ? ` · 已保护 <b>${lockedCount}</b> 种` : ''}${entries.length !== allEntries.length ? ` · 当前显示 <b>${entries.length}</b> 种` : ''}`
+  const search = $('collSearch').value.trim().toLowerCase();
+  const rarity = $('collRarity').value, arch = $('collArch').value, seasonFilter = $('collSeason').value;
+  const tier = $('collTier').value, copies = $('collCopies').value;
+  const specials = state.specialCards.filter(card => {
+    const t = cardPool[card.id];
+    return (!search || t.name.toLowerCase().includes(search) || specialLabel(card).toLowerCase().includes(search))
+      && (!rarity || t.rarity === rarity) && (!arch || t.archetype === arch)
+      && (!seasonFilter || collectionSeasonStatus(card.s) === seasonFilter)
+      && (!tier || t.tier === tier) && (!copies || copies === 'single');
+  }).sort((a, b) => specialValue(b) - specialValue(a));
+  const totalCards = allEntries.reduce((sum, e) => sum + state.collection[e.k], 0) + state.specialCards.length;
+  const totalVal = allEntries.reduce((sum, e) => sum + cardValue(cardPool[e.id], e.s) * state.collection[e.k], 0)
+    + state.specialCards.reduce((sum, card) => sum + specialValue(card), 0);
+  const lockedCount = allEntries.filter(e => isCardLocked(e.k)).length + state.specialCards.filter(c => c.locked).length;
+  const totalKinds = allEntries.length + state.specialCards.length;
+  const shownKinds = entries.length + specials.length;
+  $('collSummary').innerHTML = totalKinds
+    ? `共 <b>${totalKinds}</b> 种 · <b>${totalCards}</b> 张 · 总市值 <b>¥${totalVal}</b>${state.specialCards.length ? ` · 特效 <b>${state.specialCards.length}</b> 张` : ''}${lockedCount ? ` · 已保护 <b>${lockedCount}</b> 种` : ''}${shownKinds !== totalKinds ? ` · 当前显示 <b>${shownKinds}</b> 种` : ''}`
     : '';
   $('collectionBatchActions').classList.toggle('hidden', !collectionView.batchMode);
   $('batchModeBtn').textContent = collectionView.batchMode ? '退出批量管理' : '☑ 批量管理';
   el.classList.toggle('batch-mode', collectionView.batchMode);
-  el.innerHTML = entries.length
-    ? entries.map(e => cardHTML(cardPool[e.id], {
+  const specialHTML = specials.map(card => cardHTML(cardPool[card.id], {
+    season: card.s, special: card, specialActions: true, zoomable: true,
+  })).join('');
+  const normalHTML = entries.map(e => cardHTML(cardPool[e.id], {
       season: e.s, count: state.collection[e.k], sellBtn: true, key: e.k, zoomable: true,
       lockable: true, locked: isCardLocked(e.k),
       batchSelectable: collectionView.batchMode && !isCardLocked(e.k), selected: collectionView.selected.has(e.k),
-    })).join('')
-    : `<div class="empty">${allEntries.length ? '没有符合当前筛选条件的卡牌' : '还没有卡牌，去「🎁 开包」页买包开卡吧！'}</div>`;
+    })).join('');
+  el.innerHTML = specialHTML + normalHTML || `<div class="empty">${totalKinds ? '没有符合当前筛选条件的卡牌' : '还没有卡牌，去「🎁 开包」页买包开卡吧！'}</div>`;
   updateBatchSaleSummary();
 }
 
@@ -2726,7 +2929,7 @@ function renderMarket() {
   $('market').innerHTML = state.market.map((l, i) => {
     const t = cardPool[l.id];
     const btn = `<button class="btn buy-btn" onclick="buyFromMarket(${i})" ${state.money < l.price ? 'disabled' : ''}>¥${l.price}</button>`;
-    return listingHTML(t, btn, l.s);
+    return listingHTML(t, btn, l.s, l.finish ? l : null);
   }).join('');
 }
 
@@ -2769,7 +2972,8 @@ function renderBoard() {
 
 function renderOffers() {
   const el = $('privateGuests');
-  $('privateGuestCount').textContent = state.dealers.length ? `${state.dealers.length} 位 · 每日刷新` : '';
+  $('privateGuestCount').textContent = state.dealers.length
+    ? `${state.dealers.length} 位 · 累计声望 ${state.lifetimeReputation} · 当前圈层上限：${NPC_QUALITY[maxNpcQuality()].name}` : '';
   if (!state.dealers.length) {
     el.innerHTML = '<div class="empty">今天暂时没有客人来访</div>';
     renderPrivateInventory();
@@ -2791,7 +2995,7 @@ function renderOffers() {
       offerHTML = `
         <p class="npc-text">“${o.source === 'player' ? '这张卡我愿意收，价格还可以再谈谈。' : o.mode === 'buy' ? profile.buyText : profile.sellText}”</p>
         <div class="dealer-offer-kind">${o.source === 'player' ? '你指定出售的卡' : o.mode === 'buy' ? '对方原本想收购的卡' : '对方向你出售卡牌'}</div>
-        ${listingHTML(t, `<b class="offer-price">¥${o.price}</b>`, o.s)}
+        ${listingHTML(t, `<b class="offer-price">¥${o.price}</b>`, o.s, o.finish ? o : null)}
         ${o.note ? `<div class="haggle-note">${o.note}</div>` : ''}
         <div class="offer-actions">${actionBtn}<button class="btn btn-dim" onclick="declineOffer(${offerIndex})">${o.source === 'player' ? '取消售卡' : '拒绝报价'}</button></div>
         <div class="haggle-row">
@@ -2805,7 +3009,7 @@ function renderOffers() {
       <article id="dealer-${dealer.id}" class="dealer-card${privateTradeUI.activeDealerId === dealer.id ? ' active' : ''}">
         <div class="npc-head">
           <span class="npc-emoji">${dealer.emoji}</span>
-          <div class="dealer-identity"><b>${dealer.name}</b><div class="npc-tag">${dealer.tag}</div></div>
+          <div class="dealer-identity"><b>${dealer.name}</b><div class="npc-tag">${dealer.tag}</div>${dealer.quality ? `<span class="npc-quality quality-${dealer.quality}">💎 ${NPC_QUALITY[dealer.quality].name}</span>` : ''}</div>
           <div class="dealer-limits"><span class="dealer-patience" title="剩余耐心">耐心 ${'●'.repeat(dealer.patience)}${'○'.repeat(Math.max(0, 3 - dealer.patience))}</span><span>主动售卡 ${dealer.tradesDone || 0}/${dealer.maxTrades}</span></div>
         </div>
         <div class="dealer-budget"><span>今日收购预算</span><b>¥${dealer.budget}</b><i><em style="width:${budgetPct}%"></em></i></div>
