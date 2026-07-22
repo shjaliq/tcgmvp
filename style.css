@@ -179,6 +179,7 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 .store-upgrade-action { display: flex; align-items: flex-end; flex-direction: column; gap: 5px; text-align: right; }
 .store-upgrade-action small { max-width: 420px; color: var(--ink-3); font-size: 9px; }
 .store-maxed { padding: 6px 10px; border-radius: 14px; color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, transparent); font-size: 11px; }
+.store-scene-viewport { overflow: hidden; }
 .store-scene {
   position: relative;
   height: 290px;
@@ -283,6 +284,7 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 .store-crowd i::before { content: ''; position: absolute; left: 2px; top: -13px; width: 16px; height: 16px; border-radius: 50%; background: #d7aa83; }
 .crowd-0 i, .crowd-1 i:nth-child(n+2), .crowd-2 i:nth-child(n+3), .crowd-3 i:nth-child(n+4), .crowd-4 i:nth-child(n+5) { display: none; }
 .store-level-0 .store-intel, .store-level-0 .store-license { opacity: .35; }
+.store-pan-hint { display: none; }
 .retail-manager { padding: 14px 18px 16px; }
 .retail-manager-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .retail-manager h3 { font-size: 13px; }
@@ -1699,24 +1701,20 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   .storefront-top { align-items: stretch; flex-direction: column; gap: 10px; padding: 13px 12px; }
   .store-upgrade-action { align-items: stretch; text-align: left; }
   .store-upgrade-action small { max-width: none; }
-  .store-scene { height: 205px; }
-  .store-sign { min-width: 130px; padding: 6px 10px; font-size: 11px; }
-  .store-promo { left: 2%; width: 17%; padding: 5px 2px; border-width: 2px; }
-  .store-supply { left: 2%; width: 19%; }
-  .store-intel { left: 21%; width: 18%; border-width: 3px; }
-  .store-license { right: 18%; width: 15%; border-width: 3px; }
-  .store-counter { right: 1%; width: 17%; }
-  .store-counter span { font-size: 9px; }
-  .store-shelves { left: 40%; width: 41%; grid-template-columns: repeat(6, minmax(10px, 1fr)); gap: 2px; padding: 4px; border-width: 3px; border-bottom-width: 6px; }
-  .store-shelf-card span { display: none; }
-  .store-crowd { inset-inline: 13%; }
-  .store-crowd i { width: 14px; height: 27px; }
-  .store-crowd i::before { left: 1px; top: -9px; width: 12px; height: 12px; }
+  .store-scene-viewport {
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--scroll) transparent;
+    overscroll-behavior-x: contain; scroll-behavior: smooth; touch-action: pan-x pan-y;
+  }
+  .store-scene-viewport::-webkit-scrollbar { height: 5px; }
+  .store-scene-viewport::-webkit-scrollbar-thumb { border-radius: 4px; background: var(--scroll); }
+  .store-scene { width: 820px; min-width: 820px; height: 270px; }
+  .store-pan-hint { display: block; padding: 6px 10px; color: var(--ink-3); background: var(--row-hover); text-align: center; font-size: 9px; }
   .retail-manager { padding: 12px; }
-  .retail-add { grid-template-columns: 1fr 105px; }
-  .retail-add .btn { grid-column: 1 / -1; }
-  .retail-row { grid-template-columns: minmax(0, 1fr) 110px; }
-  .retail-row .btn { grid-column: 1 / -1; }
+  .retail-add { grid-template-columns: 1fr; }
+  .retail-add .btn { width: 100%; }
+  .retail-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .retail-row select { width: 118px; }
+  .retail-row .btn { grid-column: 1 / -1; width: 100%; }
   .inline-setting-btn { float: none; margin: 7px 0 0; display: block; }
   .settlement-modal { padding: 8px; }
   .settlement-shell { width: calc(100vw - 16px); max-height: calc(100vh - 16px); border-radius: 12px; }

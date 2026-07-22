@@ -2216,6 +2216,7 @@ function renderStorefront() {
       <div><span class="store-eyebrow">STORE LEVEL ${state.storeLevel}</span><h2>${def.icon} ${def.name}</h2><p>${report}</p></div>
       <div class="store-upgrade-action">${nextText}</div>
     </div>
+    <div id="storeSceneViewport" class="store-scene-viewport">
     <div class="store-scene store-level-${state.storeLevel}" style="--supply-lv:${state.upgrades.supply};--promo-lv:${state.upgrades.promo};--intel-lv:${state.upgrades.intel};--packs-lv:${state.upgrades.packs};--broker-lv:${state.upgrades.broker}">
       <button class="store-zone store-sign" type="button" onclick="location.hash='#/upgrade'">TCG TYCOON<small>${def.name}</small></button>
       <button class="store-zone store-supply" type="button" onclick="location.hash='#/shop'" title="卡包货源 Lv.${state.upgrades.supply}"><i></i><i></i><b>货源 Lv.${state.upgrades.supply}</b></button>
@@ -2225,7 +2226,8 @@ function renderStorefront() {
       <button class="store-zone store-counter" type="button" onclick="location.hash='#/market'" title="市场渠道 Lv.${state.upgrades.broker}"><span>收银台</span><b>渠道 Lv.${state.upgrades.broker}</b></button>
       <div class="store-crowd crowd-${Math.min(5, state.upgrades.promo)}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="store-shelves" aria-label="店内陈列">${shelfCards}${emptySlots}</div>
-    </div>
+    </div></div>
+    <div class="store-pan-hint" aria-hidden="true">← 左右滑动查看完整店铺 →</div>
     <div class="retail-manager">
       <div class="retail-manager-head"><div><h3>店内陈列</h3><p>${state.retailListings.length}/${def.slots} 个陈列位 · 成交扣除 ${Math.round((1 - retailNetRate()) * 100)}% 运营成本</p></div></div>
       <div class="retail-add">
@@ -2238,6 +2240,10 @@ function renderStorefront() {
       </div>
       <div class="retail-list">${rows}</div>
     </div>`;
+  const viewport = $('storeSceneViewport');
+  if (viewport && typeof matchMedia === 'function' && matchMedia('(max-width: 560px)').matches) {
+    requestAnimationFrame(() => { viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) / 2; });
+  }
 }
 
 function renderHome() {
