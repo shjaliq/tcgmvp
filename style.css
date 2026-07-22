@@ -456,6 +456,31 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 .pack-offer-info p { min-height: 32px; margin: 0 0 5px; color: var(--ink-3); font-size: 10px; line-height: 1.45; }
 .pack-offer-stock { display: block; margin-bottom: 7px; color: var(--ink-2); font-size: 10px; }
 .pack-offer-info .btn { width: 100%; padding: 7px 8px; font-size: 11px; }
+.wholesale-section { max-width: 1120px; margin: 0 auto 24px; }
+.wholesale-orders { margin-bottom: 12px; }
+.wholesale-order-title { margin-bottom: 6px; color: var(--ink-2); font-size: 10px; font-weight: 700; }
+.wholesale-order-row {
+  display: grid; grid-template-columns: minmax(150px, 1fr) auto minmax(260px, 1.5fr); gap: 10px;
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--row-hover); font-size: 10px;
+}
+.wholesale-order-row + .wholesale-order-row { margin-top: 4px; }
+.wholesale-order-row small { color: var(--ink-3); text-align: right; }
+.wholesale-order-empty { padding: 9px; border: 1px dashed var(--border); border-radius: 6px; color: var(--ink-3); text-align: center; font-size: 10px; }
+.wholesale-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(285px, 1fr)); gap: 10px; }
+.wholesale-offer { display: flex; gap: 12px; min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--row-hover); }
+.wholesale-offer.is-locked { opacity: .56; filter: saturate(.55); }
+.wholesale-offer-icon {
+  flex: 0 0 70px; height: 78px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 7px;
+  border: 2px solid #92633d; border-radius: 5px; color: #fff1ce; background: linear-gradient(145deg, #c58b50, #6f472f); box-shadow: inset 0 0 0 4px #e0ae6b55; font-size: 27px;
+}
+.wholesale-offer-icon span { font: 700 7px/1 monospace; letter-spacing: .08em; }
+.wholesale-offer-body { min-width: 0; flex: 1; }
+.wholesale-offer-body h3 { margin-bottom: 3px; color: var(--ink); font-size: 13px; }
+.wholesale-offer-body p { min-height: 29px; color: var(--ink-3); font-size: 9px; line-height: 1.45; }
+.wholesale-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.wholesale-tags span { padding: 2px 5px; border-radius: 8px; color: var(--ink-2); background: var(--chip); font-size: 8px; }
+.wholesale-estimate { margin-bottom: 7px; color: var(--blue); font-size: 9px; }
+.wholesale-offer-body .btn { width: 100%; padding: 7px; font-size: 10px; }
 
 /* ---------- 升级页 ---------- */
 .upgrade-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
@@ -1752,6 +1777,9 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   .shop-hero { margin-top: 12px; }
   .pack-catalog { grid-template-columns: 1fr; }
   .pack-offer-info p { min-height: 0; }
+  .wholesale-board { grid-template-columns: 1fr; }
+  .wholesale-order-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .wholesale-order-row small { grid-column: 1 / -1; text-align: left; }
   .card-detail-close { top: -12px; right: -4px; }
   .collection-filters > * { flex: 1 1 calc(50% - 7px); min-width: 0; }
   .collection-filters input { width: auto; flex-basis: 100%; }

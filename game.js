@@ -119,7 +119,7 @@ const career = { stats: emptyProgressStats(), completed: {}, challenges: {}, mas
 const UPGRADES = {
   supply: {
     name: '卡包货源', icon: '📦', maxLv: 7, baseCost: 60, costMult: 1.45,
-    desc: '逐步拓宽进货渠道，每级让每日共享卡包货源 +1 包',
+    desc: '每级让每日共享卡包货源 +1 包并扩大批发容量；关键等级解锁新的批次和采购折扣',
   },
   promo: {
     name: '宣传推广', icon: '📣', maxLv: 5, baseCost: 90, costMult: 1.6,
@@ -131,7 +131,7 @@ const UPGRADES = {
   },
   packs: {
     name: '卡包经营许可', icon: '🎫', maxLv: 4, baseCost: 120, costMult: 1.55,
-    desc: '取得特殊商品经营资格，逐级解锁优惠包、大包、主题包与经典纪念包',
+    desc: '逐级解锁优惠包、大包、主题包与经典纪念包，同时取得对应批发商品的经营许可',
   },
   broker: {
     name: '市场渠道', icon: '🏦', maxLv: 5, baseCost: 90, costMult: 1.5,
@@ -149,6 +149,29 @@ const STORE_LEVELS = [
 ];
 
 const RETAIL_PRICE_OPTIONS = [90, 100, 110, 125, 140, 160];
+
+const WHOLESALE_TYPES = {
+  standard: {
+    name: '标准批次', icon: '📦', supplyLv: 2, packsLv: 0, season: 1, count: 15, days: 1, priceFactor: 0.92,
+    desc: '当季常规混装，数量稳定，适合作为基础货架库存',
+  },
+  clearance: {
+    name: '清仓托盘', icon: '🏷️', supplyLv: 3, packsLv: 1, season: 1, count: 28, days: 1, priceFactor: 0.88,
+    desc: 'N、R 卡为主的大宗尾货，便宜但需要时间消化',
+  },
+  theme: {
+    name: '体系批次', icon: '🎯', supplyLv: 4, packsLv: 3, season: 1, count: 20, days: 2, priceFactor: 0.94,
+    desc: '集中供应本季主题体系，需求较高但采购价也更高',
+  },
+  classic: {
+    name: '老卡仓库', icon: '🕰️', supplyLv: 6, packsLv: 4, season: 2, count: 22, days: 2, priceFactor: 0.90,
+    desc: '往季库存与少量退环境卡，价值和流动性差异很大',
+  },
+  premium: {
+    name: '高端藏品批次', icon: '💎', supplyLv: 7, packsLv: 4, season: 3, count: 8, days: 3, priceFactor: 0.97,
+    desc: '至少两张 SR 以上，资金占用时间长，适合成熟店铺',
+  },
+};
 
 // ==================== 工具 ====================
 const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
@@ -483,6 +506,10 @@ const state = {
   storeLevel: 0,
   retailListings: [], // [{key, pricePct}]：从收藏中陈列一张，成交后扣除
   lastRetailReport: { day: 0, sales: 0, gross: 0, net: 0 },
+  wholesaleOffers: [],
+  wholesaleOrders: [],
+  wholesaleSpent: 0,
+  lastWholesaleReport: { day: 0, orders: 0, cards: 0, value: 0 },
   packsBought: 0,   // 今日已购卡包数
   packTypeBought: {}, // 今日各特殊卡包购买数
   reprint: null,    // {season, daysLeft} 复刻活动
@@ -550,6 +577,10 @@ function saveGame() {
       storeLevel: state.storeLevel,
       retailListings: state.retailListings,
       lastRetailReport: state.lastRetailReport,
+      wholesaleOffers: state.wholesaleOffers,
+      wholesaleOrders: state.wholesaleOrders,
+      wholesaleSpent: state.wholesaleSpent,
+      lastWholesaleReport: state.lastWholesaleReport,
       packsBought: state.packsBought,
       packTypeBought: state.packTypeBought,
       reprint: state.reprint,
@@ -694,6 +725,12 @@ function loadGame() {
     state.lastRetailReport = d.lastRetailReport && typeof d.lastRetailReport === 'object'
       ? { day: 0, sales: 0, gross: 0, net: 0, ...d.lastRetailReport }
       : { day: 0, sales: 0, gross: 0, net: 0 };
+    state.wholesaleOffers = Array.isArray(d.wholesaleOffers) ? d.wholesaleOffers : [];
+    state.wholesaleOrders = Array.isArray(d.wholesaleOrders) ? d.wholesaleOrders : [];
+    state.wholesaleSpent = Math.max(0, Number(d.wholesaleSpent) || 0);
+    state.lastWholesaleReport = d.lastWholesaleReport && typeof d.lastWholesaleReport === 'object'
+      ? { day: 0, orders: 0, cards: 0, value: 0, ...d.lastWholesaleReport }
+      : { day: 0, orders: 0, cards: 0, value: 0 };
     state.packsBought = d.packsBought || 0;
     state.packTypeBought = d.packTypeBought || {};
     state.reprint = d.reprint || null;
@@ -832,14 +869,18 @@ function upgradeCost(key) {
 }
 
 function upgradeEffect(key, lv) {
-  if (key === 'supply') return `每日共享货源 ${3 + lv} 包`;
+  if (key === 'supply') {
+    const batches = Object.values(WHOLESALE_TYPES).filter(x => x.supplyLv <= lv).map(x => x.name);
+    return `每日共享货源 ${3 + lv} 包 · 批发容量 ¥${300 + lv * 300}${batches.length ? ` · 货源：${batches.join('、')}` : ''}`;
+  }
   if (key === 'promo') return `每日 ${Math.min(1 + lv, NPC_PROFILES.length)} 位 NPC · 店内成交机会 +${lv * 13}%`;
   if (key === 'intel') return `每日额外传闻 +${lv}`
     + (lv >= 1 ? ` · 店内${['', '需求趋势', '成交率区间', '精确成交率'][lv]}` : '')
     + (lv >= 2 ? ' · 每日保底「内部线人」 · 行情板标注削弱风险' : '');
   if (key === 'packs') {
     const unlocked = ['标准卡包', '优惠标准包', '大包', '赛季主题包', '经典纪念包'].slice(0, lv + 1);
-    return `可售：${unlocked.join('、')}`;
+    const batches = Object.values(WHOLESALE_TYPES).filter(x => x.packsLv <= lv && x.packsLv > 0).map(x => x.name);
+    return `可售：${unlocked.join('、')}${batches.length ? ` · 批发许可：${batches.join('、')}` : ''}`;
   }
   if (key === 'broker') {
     const buyFee = Math.round((marketBuyMarkupAt(lv) - 1) * 100);
@@ -988,6 +1029,120 @@ function processRetailSales() {
   }
   state.lastRetailReport = { day: state.day, sales: sold.length, gross, net };
   return state.lastRetailReport;
+}
+
+// ==================== 批发订货 ====================
+const wholesaleDailyCapacity = () => 300 + state.upgrades.supply * 300;
+const wholesaleCapacityLeft = () => Math.max(0, wholesaleDailyCapacity() - state.wholesaleSpent);
+const wholesaleOrderLimit = () => 1 + Math.floor(state.storeLevel / 2);
+const wholesaleDiscountAt = lv => (lv >= 5 ? 0.05 : 0) + (lv >= 7 ? 0.05 : 0);
+const wholesaleDiscount = () => wholesaleDiscountAt(state.upgrades.supply);
+
+function wholesaleUnlocked(def) {
+  return state.upgrades.supply >= def.supplyLv && state.upgrades.packs >= def.packsLv && curSeason() >= def.season;
+}
+
+function wholesaleRarity(type, index) {
+  if (type === 'premium' && index < 2) return rollRarityAtLeast('SR');
+  if (type === 'clearance') {
+    const r = Math.random();
+    return r < 0.78 ? 'N' : r < 0.97 ? 'R' : 'SR';
+  }
+  return rollRarity();
+}
+
+function makeWholesaleItems(type, def) {
+  const items = [];
+  for (let i = 0; i < def.count; i++) {
+    const rarity = wholesaleRarity(type, i);
+    const season = type === 'classic' ? rand(1, Math.max(1, curSeason() - 1)) : curSeason();
+    const scope = type === 'theme' ? cardPool.filter(t => state.themes.includes(t.archetype)) : cardPool;
+    let candidates = scope.filter(t => t.rarity === rarity);
+    if (!candidates.length) candidates = scope;
+    items.push({ id: pick(candidates).id, s: season });
+  }
+  return items;
+}
+
+function wholesaleItemsValue(items) {
+  return items.reduce((sum, item) => sum + cardValue(cardPool[item.id], item.s), 0);
+}
+
+function makeWholesaleOffer(type, def) {
+  const unlockCapacity = 300 + def.supplyLv * 300;
+  const unlockDiscount = wholesaleDiscountAt(def.supplyLv);
+  let items, value, baseCost;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    items = makeWholesaleItems(type, def);
+    value = wholesaleItemsValue(items);
+    baseCost = Math.max(50, Math.round(value * def.priceFactor * randf(0.90, 1.10) / 10) * 10);
+    if (Math.round(baseCost * (1 - unlockDiscount) / 10) * 10 <= unlockCapacity) break;
+  }
+  return {
+    uid: `w${state.day}-${type}`,
+    type,
+    items,
+    baseCost,
+    purchased: false,
+  };
+}
+
+function refreshWholesaleOffers() {
+  state.wholesaleOffers = Object.entries(WHOLESALE_TYPES).map(([type, def]) => makeWholesaleOffer(type, def));
+}
+
+function wholesalePrice(offer) {
+  return Math.max(1, Math.round(offer.baseCost * (1 - wholesaleDiscount()) / 10) * 10);
+}
+
+function buyWholesale(type) {
+  const def = WHOLESALE_TYPES[type];
+  const offer = state.wholesaleOffers.find(o => o.type === type);
+  if (!def || !offer || offer.purchased) return;
+  if (!wholesaleUnlocked(def)) { flash(`需要货源 Lv.${def.supplyLv}、经营许可 Lv.${def.packsLv}${def.season > 1 ? `，并到达 S${def.season}` : ''}`); return; }
+  if (state.wholesaleOrders.length >= wholesaleOrderLimit()) { flash(`当前店铺最多同时处理 ${wholesaleOrderLimit()} 笔批发订单`); return; }
+  const price = wholesalePrice(offer);
+  if (price > wholesaleCapacityLeft()) { flash(`今日采购容量还剩 ¥${wholesaleCapacityLeft()}`); return; }
+  if (state.money < price) { flash('现金不足，批发订单需要立即支付全款'); return; }
+  state.money -= price;
+  state.wholesaleSpent += price;
+  offer.purchased = true;
+  state.wholesaleOrders.push({
+    uid: offer.uid, type, items: offer.items, paid: price,
+    placedDay: state.day, arriveDay: state.day + def.days,
+  });
+  addLog(`🚚 已支付 ¥${price} 订购【${def.name}】，预计第 ${state.day + def.days} 天到货`);
+  renderAll();
+}
+
+function deliverWholesaleOrders() {
+  const arrived = state.wholesaleOrders.filter(order => order.arriveDay <= state.day);
+  state.wholesaleOrders = state.wholesaleOrders.filter(order => order.arriveDay > state.day);
+  let cards = 0, value = 0;
+  arrived.forEach(order => {
+    order.items.forEach(item => {
+      const k = keyOf(item.id, item.s);
+      state.collection[k] = (state.collection[k] || 0) + 1;
+      cards++;
+      value += cardValue(cardPool[item.id], item.s);
+    });
+    recordCardAcquisition(order.items.map(item => cardPool[item.id]));
+    addTrade(`🚚 【${WHOLESALE_TYPES[order.type].name}】到货 ${order.items.length} 张，当前估值 ¥${wholesaleItemsValue(order.items)}`, 'good');
+  });
+  if (arrived.length) addLog(`📦 ${arrived.length} 笔批发订单到货，共入库 ${cards} 张卡，当前估值 ¥${value}`, 'good');
+  state.lastWholesaleReport = { day: state.day, orders: arrived.length, cards, value };
+  return state.lastWholesaleReport;
+}
+
+function wholesaleEstimateText(offer) {
+  const value = wholesaleItemsValue(offer.items);
+  if (state.upgrades.intel <= 0) return '内容与估值尚未鉴定';
+  if (state.upgrades.intel === 1) {
+    const high = offer.items.filter(x => ['SR', 'UR'].includes(cardPool[x.id].rarity)).length;
+    return high >= 3 ? '货品质感：精品' : high ? '货品质感：尚可' : '货品质感：基础';
+  }
+  if (state.upgrades.intel === 2) return `预估总值 ¥${Math.round(value * 0.85)}～¥${Math.round(value * 1.15)}`;
+  return `当前精确估值 ¥${value}`;
 }
 
 // ==================== 委托 ====================
@@ -1982,6 +2137,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
       <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
     </div>
     <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}` : '今日没有顾客成交'}</b></div>
+    <div class="settlement-retail"><span>🚚 批发到货</span><b>${state.lastWholesaleReport.orders ? `${state.lastWholesaleReport.orders} 批 · ${state.lastWholesaleReport.cards} 张 · 当前估值 ¥${state.lastWholesaleReport.value}` : '今日没有新批次到货'}</b></div>
     ${seasonExtras}
     <section class="settlement-market">
       <div class="settlement-section-title">行情摘要</div>
@@ -2018,12 +2174,15 @@ function nextDay() {
   state.day++;
   state.packsBought = 0;
   state.packTypeBought = {};
+  state.wholesaleSpent = 0;
   tickReprint();
   if (curSeason() > prevSeason) seasonEvent();
   dailyEvent();
   maybeReprint();
   refreshMarket();
   makeOffers();
+  deliverWholesaleOrders();
+  refreshWholesaleOffers();
   if (curSeason() === prevSeason) refreshCommissions();
   // 记录身价走势
   state.history.push({ d: state.day, v: netWorth() });
@@ -2219,7 +2378,7 @@ function renderStorefront() {
     <div id="storeSceneViewport" class="store-scene-viewport">
     <div class="store-scene store-level-${state.storeLevel}" style="--supply-lv:${state.upgrades.supply};--promo-lv:${state.upgrades.promo};--intel-lv:${state.upgrades.intel};--packs-lv:${state.upgrades.packs};--broker-lv:${state.upgrades.broker}">
       <button class="store-zone store-sign" type="button" onclick="location.hash='#/upgrade'">TCG TYCOON<small>${def.name}</small></button>
-      <button class="store-zone store-supply" type="button" onclick="location.hash='#/shop'" title="卡包货源 Lv.${state.upgrades.supply}"><i></i><i></i><b>货源 Lv.${state.upgrades.supply}</b></button>
+      <button class="store-zone store-supply" type="button" onclick="location.hash='#/shop'" title="卡包货源 Lv.${state.upgrades.supply}"><i></i><i></i><b>货源 Lv.${state.upgrades.supply}${state.wholesaleOrders.length ? ` · 在途 ${state.wholesaleOrders.length}` : ''}</b></button>
       <button class="store-zone store-promo" type="button" onclick="location.hash='#/private'" title="宣传推广 Lv.${state.upgrades.promo}">今日来客<br><b>${dailyGuestCount()} 位</b></button>
       <button class="store-zone store-intel" type="button" onclick="location.hash='#/news'" title="情报信源 Lv.${state.upgrades.intel}"><span>MARKET</span><b>${state.upgrades.intel ? '行情在线' : '等待接入'}</b></button>
       <button class="store-zone store-license" type="button" onclick="location.hash='#/shop'" title="卡包经营许可 Lv.${state.upgrades.packs}"><span>PACK WALL</span><b>${state.upgrades.packs + 1} 种商品</b></button>
@@ -2304,6 +2463,40 @@ function specialPackHTML(key, def, sharedLeft) {
   </article>`;
 }
 
+function renderWholesale() {
+  const cap = wholesaleDailyCapacity();
+  const left = wholesaleCapacityLeft();
+  $('wholesaleCapacityInfo').textContent = `今日采购容量 ¥${left}/¥${cap} · 同时处理 ${state.wholesaleOrders.length}/${wholesaleOrderLimit()} 单`;
+  $('wholesaleOrders').innerHTML = state.wholesaleOrders.length
+    ? `<div class="wholesale-order-title">在途订单</div>${state.wholesaleOrders.map(order => {
+      const def = WHOLESALE_TYPES[order.type];
+      return `<div class="wholesale-order-row"><span>${def.icon} ${def.name}</span><b>${order.items.length} 张</b><small>已付 ¥${order.paid} · 第 ${order.arriveDay} 天到货（还剩 ${Math.max(0, order.arriveDay - state.day)} 天）</small></div>`;
+    }).join('')}`
+    : '<div class="wholesale-order-empty">目前没有在途订单</div>';
+  $('wholesaleBoard').innerHTML = Object.entries(WHOLESALE_TYPES).map(([type, def]) => {
+    const offer = state.wholesaleOffers.find(o => o.type === type);
+    if (!offer) return '';
+    const unlocked = wholesaleUnlocked(def);
+    const price = wholesalePrice(offer);
+    const blocked = state.wholesaleOrders.length >= wholesaleOrderLimit() || price > left || state.money < price;
+    const requirement = `货源 Lv.${def.supplyLv} · 许可 Lv.${def.packsLv}${def.season > 1 ? ` · S${def.season}` : ''}`;
+    let button = `订购 ¥${price}`;
+    if (offer.purchased) button = '今日已订购';
+    else if (!unlocked) button = `${requirement} 解锁`;
+    else if (price > left) button = '超出今日采购容量';
+    else if (state.wholesaleOrders.length >= wholesaleOrderLimit()) button = '在途订单已满';
+    const discount = wholesaleDiscount();
+    return `<article class="wholesale-offer${unlocked ? '' : ' is-locked'}">
+      <div class="wholesale-offer-icon">${def.icon}<span>${def.count} CARDS</span></div>
+      <div class="wholesale-offer-body"><h3>${def.name}</h3><p>${def.desc}</p>
+        <div class="wholesale-tags"><span>${def.days} 天到货</span><span>${requirement}</span>${discount ? `<span class="good">渠道折扣 ${Math.round(discount * 100)}%</span>` : ''}</div>
+        <div class="wholesale-estimate">🕵️ ${wholesaleEstimateText(offer)}</div>
+        <button class="btn btn-primary" type="button" onclick="buyWholesale('${type}')" ${offer.purchased || !unlocked || blocked ? 'disabled' : ''}>${button}</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
 function renderShop() {
   const left = dailyPackLimit() - state.packsBought;
   const btn = $('buyPackBtn');
@@ -2320,6 +2513,7 @@ function renderShop() {
     .filter(([key]) => key !== 'standard')
     .map(([key, def]) => specialPackHTML(key, def, left))
     .join('');
+  renderWholesale();
 }
 
 function collectionSeasonStatus(s) {
@@ -2830,6 +3024,7 @@ function init() {
     if (!state.history.length) state.history = [{ d: state.day, v: netWorth() }];
     addLog('📂 已读取存档，欢迎回来！');
   }
+  if (!state.wholesaleOffers.length) refreshWholesaleOffers();
   checkAchievements();
   renderAll();
   renderRoute();
