@@ -293,6 +293,13 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 .store-branch-network { position: absolute; z-index: 7; top: 7%; right: 4%; max-width: 210px; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 3px; padding: 5px; border: 1px solid #f0d38466; border-radius: 8px; background: #242a31d9; box-shadow: 0 3px 8px #0005; }
 .branch-pin { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 4px; background: #ffffff15; font-size: 12px; }
 .branch-pin.offline { filter: grayscale(1); opacity: .42; }
+.store-showcase { position: absolute; z-index: 5; left: 24%; bottom: 14%; width: 17%; height: 20%; display: flex; align-items: flex-end; justify-content: center; gap: 4px; padding: 7px 7px 10px; border: 4px solid #6f5335; border-bottom-width: 9px; border-radius: 5px 5px 2px 2px; background: linear-gradient(145deg, #d9f4ff55, #88b8c733); box-shadow: inset 0 0 12px #d8f5ff88, 0 3px 7px #0004; }
+.store-showcase::before { content: 'NOT FOR SALE'; position: absolute; left: 5px; right: 5px; bottom: 1px; color: #f7dfa1; text-align: center; font-size: 5px; letter-spacing: .12em; }
+.store-showcase button, .store-showcase i { position: relative; width: 27%; aspect-ratio: .72; overflow: hidden; padding: 0; border: 1px solid #f5dc8e; border-radius: 2px; background: #20242b; }
+.store-showcase button { cursor: zoom-in; box-shadow: 0 0 7px #fff7ad66; }
+.store-showcase button img { width: 100%; height: 100%; object-fit: cover; }
+.store-showcase button span { position: absolute; right: 1px; bottom: 1px; padding: 1px 2px; border-radius: 3px; color: #ffe7a1; background: #16191ddd; font-size: 5px; }
+.store-showcase i { display: grid; place-items: center; border-style: dashed; color: #d8eff5; font-size: 10px; font-style: normal; }
 .store-crowd { position: absolute; z-index: 6; inset: auto 16% 3% 16%; display: flex; justify-content: space-around; pointer-events: none; }
 .store-crowd i { position: relative; width: 20px; height: 40px; border-radius: 10px 10px 3px 3px; background: #5b5961; box-shadow: 0 6px 8px #392d2480; }
 .store-crowd i::before { content: ''; position: absolute; left: 2px; top: -13px; width: 16px; height: 16px; border-radius: 50%; background: #d7aa83; }
@@ -336,6 +343,20 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
 .branch-actions select { min-width: 0; padding: 5px; border: 1px solid var(--border); border-radius: 5px; color: var(--ink); background: var(--panel); font-size: 9px; }
 .branch-actions .btn { padding: 5px 7px; font-size: 8px; }
 .branch-empty { grid-column: 1 / -1; padding: 18px; border: 1px dashed var(--border); border-radius: 7px; color: var(--ink-3); text-align: center; font-size: 10px; }
+.showcase-manager { padding: 14px 18px; border-top: 1px solid var(--row-line); background: linear-gradient(110deg, color-mix(in srgb, var(--blue) 4%, var(--panel)), var(--panel)); }
+.showcase-manager-head { display: flex; justify-content: space-between; margin-bottom: 9px; }
+.showcase-manager h3 { font-size: 13px; }
+.showcase-manager p { margin-top: 2px; color: var(--ink-3); font-size: 10px; }
+.showcase-manager p b { color: var(--gold); }
+.showcase-add { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 7px; margin-bottom: 8px; }
+.showcase-add select { min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--ink); background: var(--panel); font-size: 10px; }
+.showcase-list { display: grid; gap: 5px; }
+.showcase-row .listing { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; }
+.showcase-effect { display: flex; flex-direction: column; align-items: flex-end; color: var(--gold); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.showcase-effect small { color: var(--ink-3); font-size: 7px; font-weight: 400; }
+.showcase-row .btn { margin-left: 7px; padding: 5px 8px; font-size: 9px; }
+.showcase-empty { padding: 14px; border: 1px dashed var(--border); border-radius: 7px; color: var(--ink-3); text-align: center; font-size: 10px; }
+.card-display-badge { position: absolute; z-index: 16; left: 7px; top: 43px; padding: 2px 6px; border: 1px solid #bdeaff88; border-radius: 8px; color: #e8faff; background: #24556fe8; box-shadow: 0 2px 5px #0006; font-size: 7px; font-weight: 700; pointer-events: none; }
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -1848,6 +1869,11 @@ main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
   .store-scene { width: 820px; min-width: 820px; height: 270px; }
   .store-pan-hint { display: block; padding: 6px 10px; color: var(--ink-3); background: var(--row-hover); text-align: center; font-size: 9px; }
   .retail-manager { padding: 12px; }
+  .showcase-manager { padding: 12px; }
+  .showcase-add { grid-template-columns: 1fr; }
+  .showcase-add .btn { width: 100%; }
+  .showcase-row .listing { flex-wrap: wrap; }
+  .showcase-effect { margin-left: auto; }
   .store-rating-line { align-items: flex-start; flex-direction: column; }
   .branch-open-controls { align-items: stretch; flex-direction: column; }
   .branch-open-controls select { max-width: none; }

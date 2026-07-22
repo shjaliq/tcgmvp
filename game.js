@@ -131,6 +131,7 @@ const CAREER_MILESTONE_GROUPS = [
   { key: 'npcFriendships', icon: '💞', name: '收藏圈名人', unit: '位挚友', tiers: [[1, 12], [5, 35], [12, 75]] },
   { key: 'highStoreRatings', icon: '🏅', name: '名店评级', unit: '次 S/SS', tiers: [[1, 12], [5, 35], [20, 80]] },
   { key: 'annualAwards', icon: '🏆', name: '年度卡店', unit: '次获奖', tiers: [[1, 20], [3, 55], [10, 120]] },
+  { key: 'showcaseIncome', icon: '🪟', name: '镇店之宝', unit: '展示收益', tiers: [[100, 8], [1000, 25], [10000, 65]] },
 ];
 
 const emptyProgressStats = () => ({
@@ -142,6 +143,7 @@ const emptyProgressStats = () => ({
   specialCardsAcquired: 0, premiumSpecialsAcquired: 0,
   consignmentsSold: 0, auctionsSold: 0, npcFriendships: 0,
   highStoreRatings: 0, annualAwards: 0,
+  showcaseIncome: 0,
 });
 
 const career = { stats: emptyProgressStats(), completed: {}, challenges: {}, masteredArchetypes: {}, points: 0 };
@@ -616,6 +618,7 @@ const state = {
   storePrestige: 0,
   seasonBusiness: null,
   retailListings: [], // [{key, pricePct}]：从收藏中陈列一张，成交后扣除
+  showcaseItems: [],  // 非卖品展柜 [{type:'normal',key}|{type:'special',uid}]
   lastRetailReport: { day: 0, sales: 0, gross: 0, net: 0 },
   wholesaleOffers: [],
   wholesaleOrders: [],
@@ -704,6 +707,7 @@ function saveGame() {
       storePrestige: state.storePrestige,
       seasonBusiness: state.seasonBusiness,
       retailListings: state.retailListings,
+      showcaseItems: state.showcaseItems,
       lastRetailReport: state.lastRetailReport,
       wholesaleOffers: state.wholesaleOffers,
       wholesaleOrders: state.wholesaleOrders,
@@ -885,8 +889,16 @@ function loadGame() {
     state.seasonBusiness = d.seasonBusiness && typeof d.seasonBusiness === 'object' ? d.seasonBusiness : null;
     state.retailListings = (Array.isArray(d.retailListings) ? d.retailListings : [])
       .filter(l => l && typeof l.key === 'string' && RETAIL_PRICE_OPTIONS.includes(Number(l.pricePct)))
-      .map(l => ({ key: l.key, pricePct: Number(l.pricePct) }))
+      .map(l => ({ key: l.key, pricePct: Number(l.pricePct), location: typeof l.location === 'string' ? l.location : '' }))
       .slice(0, STORE_LEVELS[state.storeLevel].slots + state.storeBranches * BRANCH_SLOTS);
+    const seenShowcase = new Set();
+    state.showcaseItems = (Array.isArray(d.showcaseItems) ? d.showcaseItems : []).filter(item => {
+      const ref = item && item.type === 'special' ? `s:${item.uid}` : item && item.type === 'normal' ? `n:${item.key}` : '';
+      if (!ref || seenShowcase.has(ref)) return false;
+      const exists = item.type === 'special' ? state.specialCards.some(c => c.uid === item.uid) : !!state.collection[item.key];
+      if (exists) seenShowcase.add(ref);
+      return exists;
+    }).slice(0, showcaseSlotsAt(state.storeLevel));
     state.lastRetailReport = d.lastRetailReport && typeof d.lastRetailReport === 'object'
       ? { day: 0, sales: 0, gross: 0, net: 0, ...d.lastRetailReport }
       : { day: 0, sales: 0, gross: 0, net: 0 };
@@ -1101,6 +1113,59 @@ const branchCost = () => Math.round(30000 * Math.pow(1.55, state.storeBranches) 
 const branchOf = id => state.branchStores.find(b => b.id === id);
 const branchDef = branch => branch && BRANCH_TYPES[branch.type];
 const prestigeTrafficBonus = () => Math.min(0.2, state.storePrestige * 0.002);
+const showcaseSlotsAt = level => level >= 5 ? 3 : level >= 3 ? 2 : 1;
+const showcaseSlots = () => showcaseSlotsAt(state.storeLevel);
+const showcaseReservedQty = key => state.showcaseItems.some(x => x.type === 'normal' && x.key === key) ? 1 : 0;
+const isSpecialShowcased = uid => state.showcaseItems.some(x => x.type === 'special' && x.uid === uid);
+
+function showcaseItemData(item) {
+  if (item.type === 'special') {
+    const card = state.specialCards.find(c => c.uid === item.uid);
+    if (!card) return null;
+    const finishRate = { foil: 0.06, holo: 0.09, signed: 0.14, numbered: 0.20 }[card.finish] || 0;
+    const rarityRate = cardPool[card.id].rarity === 'UR' ? 0.04 : cardPool[card.id].rarity === 'SR' ? 0.02 : 0;
+    return { item, t: cardPool[card.id], s: card.s, card, rate: Math.min(0.22, finishRate + rarityRate), label: specialLabel(card) };
+  }
+  const { id, s } = parseKey(item.key);
+  const t = cardPool[id];
+  if (!t || !state.collection[item.key]) return null;
+  const rate = t.rarity === 'UR' ? 0.05 : t.rarity === 'SR' ? 0.025 : 0;
+  return { item, t, s, card: null, rate, label: t.rarity === 'UR' ? 'UR 珍藏' : t.rarity === 'SR' ? 'SR 精品' : '普通展示' };
+}
+
+function showcaseRate() {
+  const weights = [1, 0.65, 0.4];
+  return Math.min(0.3, state.showcaseItems.map(showcaseItemData).filter(Boolean).map(x => x.rate).sort((a, b) => b - a)
+    .reduce((sum, rate, i) => sum + rate * (weights[i] || 0.25), 0));
+}
+function showcaseRateText(rate) {
+  const pct = Math.round(rate * 1000) / 10;
+  return Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+}
+
+function addShowcaseItem(value) {
+  if (state.showcaseItems.length >= showcaseSlots()) { flash('非卖品展柜已经满了'); return; }
+  if (!value || !value.includes(':')) return;
+  const [type, ref] = value.split(':');
+  if (type === 'n') {
+    const key = ref;
+    const retailQty = state.retailListings.filter(x => x.key === key).length;
+    if (!state.collection[key] || state.collection[key] <= commissionReservedQty(key) + retailQty + showcaseReservedQty(key)) { flash('这张卡没有可用于展示的库存'); return; }
+    state.showcaseItems.push({ type: 'normal', key });
+  } else if (type === 's') {
+    const card = state.specialCards.find(c => c.uid === ref);
+    if (!card || isSpecialShowcased(ref)) return;
+    state.showcaseItems.push({ type: 'special', uid: ref });
+  } else return;
+  addLog('🪟 非卖品展柜已更换展品，下一次营业结算开始生效', 'good');
+  renderAll();
+}
+
+function removeShowcaseItem(index) {
+  if (!state.showcaseItems[index]) return;
+  state.showcaseItems.splice(index, 1);
+  renderAll();
+}
 
 function freshSeasonBusiness() {
   return {
@@ -1221,6 +1286,8 @@ function changeBranchType(index, type) {
 function commissionReservedQty(key) {
   return state.activeCommissions.reduce((sum, c) => sum + Number((c.deck || {})[key] || 0), 0);
 }
+const retailReservedQty = key => state.retailListings.filter(x => x.key === key).length;
+const reservedNormalQty = key => commissionReservedQty(key) + showcaseReservedQty(key) + retailReservedQty(key);
 
 const isCardLocked = key => !!state.cardLocks[key];
 
@@ -1246,6 +1313,7 @@ function sellSpecialToMarket(uid) {
   const index = state.specialCards.findIndex(c => c.uid === uid);
   if (index < 0) return;
   const card = state.specialCards[index];
+  if (isSpecialShowcased(uid)) { flash('这张卡正在非卖品展柜中展示'); return; }
   if (card.locked) { flash('这张特效卡默认受保护，请先解锁'); return; }
   const price = Math.max(1, Math.round(specialValue(card) * marketSellRate()));
   state.specialCards.splice(index, 1);
@@ -1258,7 +1326,7 @@ function sellSpecialToMarket(uid) {
 }
 
 function retailCardIsFree(key) {
-  return !isCardLocked(key) && (state.collection[key] || 0) > commissionReservedQty(key);
+  return !isCardLocked(key) && (state.collection[key] || 0) > commissionReservedQty(key) + showcaseReservedQty(key);
 }
 
 function storeUpgradeBlockers(level = state.storeLevel + 1) {
@@ -1434,15 +1502,22 @@ function processRetailSales() {
   }
   const soldKeys = new Set(sold.map(x => x.key));
   state.retailListings = state.retailListings.filter(l => !soldKeys.has(l.key));
+  const displayRate = showcaseRate();
+  const displayBonus = Math.max(0, Math.round(gross * displayRate));
+  if (displayBonus) {
+    state.money += displayBonus;
+    recordProgress('showcaseIncome', displayBonus);
+    recordProgress('moneyEarned', displayBonus);
+  }
   if (sold.length) {
     recordProgress('cardsSold', sold.length);
     recordProgress('tradeDeals', sold.length);
     recordProgress('moneyEarned', net);
-    addLog(`🛍️ 全店零售成交 ${sold.length} 张，净回款 ¥${net}${branchNet ? `（分店留存 ¥${branchNet}）` : ''}`, 'good');
-    addTrade(`店内售出 ${sold.map(x => x.name).join('、')}，总回款 ¥${net}`, 'good');
+    addLog(`🛍️ 全店零售成交 ${sold.length} 张，净回款 ¥${net}${displayBonus ? `，展柜吸引力额外 +¥${displayBonus}` : ''}${branchNet ? `（分店留存 ¥${branchNet}）` : ''}`, 'good');
+    addTrade(`店内售出 ${sold.map(x => x.name).join('、')}，总回款 ¥${net}${displayBonus ? `，展示收益 ¥${displayBonus}` : ''}`, 'good');
   }
-  business.retailNet += net;
-  state.lastRetailReport = { day: state.day, sales: sold.length, gross, net, mainNet, branchNet, operatingCost, activeBranches };
+  business.retailNet += net + displayBonus;
+  state.lastRetailReport = { day: state.day, sales: sold.length, gross, net, mainNet, branchNet, operatingCost, activeBranches, displayRate, displayBonus };
   return state.lastRetailReport;
 }
 
@@ -1657,7 +1732,7 @@ function changeCommissionCard(uid, k, delta) {
   const { id, s } = parseKey(k);
   if (delta > 0 && !commissionCardAllowed(c, cardPool[id], s)) { flash('竞技挑战不能使用退环境卡'); return; }
   if (delta > 0 && commissionDeckCount(c) >= c.size) { flash(`这份委托只需要 ${c.size} 张牌`); return; }
-  const next = clamp(current + delta, 0, state.collection[k]);
+  const next = clamp(current + delta, 0, Math.max(0, state.collection[k] - showcaseReservedQty(k)));
   if (next) c.deck[k] = next; else delete c.deck[k];
   renderAll();
 }
@@ -1671,7 +1746,7 @@ function scoreCommission(c) {
   Object.entries(c.deck || {}).forEach(([k, qty]) => {
     const { id, s } = parseKey(k);
     const t = cardPool[id];
-    const usableQty = Math.min(qty, state.collection[k] || 0);
+    const usableQty = Math.min(qty, Math.max(0, (state.collection[k] || 0) - showcaseReservedQty(k)));
     for (let i = 0; t && i < usableQty; i++) cards.push({ t, s, k });
   });
   const n = cards.length;
@@ -1738,7 +1813,7 @@ function submitCommission(uid) {
   if (score.n !== c.size) { flash(`还需要配满 ${c.size} 张牌`); return; }
   if (score.total + 1e-6 < c.target) { flash(`当前 ${score.total.toFixed(1)} 分，尚未达到目标`); return; }
   for (const [k, qty] of Object.entries(c.deck)) {
-    if ((state.collection[k] || 0) < qty) { flash('收藏数量发生变化，请重新配牌'); renderAll(); return; }
+    if (Math.max(0, (state.collection[k] || 0) - showcaseReservedQty(k)) < qty) { flash('部分卡牌正在非卖品展柜中，请重新配牌'); renderAll(); return; }
   }
   Object.entries(c.deck).forEach(([k, qty]) => {
     state.collection[k] -= qty;
@@ -1943,6 +2018,7 @@ function buyFromMarket(i) {
 function sellToMarket(k) {
   if (!state.collection[k]) return;
   if (isCardLocked(k)) { flash('这张卡已锁定，请先在收藏中解锁'); return; }
+  if (state.collection[k] <= reservedNormalQty(k)) { flash('剩余库存正被展柜、委托或货架占用'); return; }
   const { id, s } = parseKey(k);
   const t = cardPool[id];
   const price = Math.max(1, Math.round(cardValue(t, s) * marketSellRate()));
@@ -1967,7 +2043,7 @@ function listConsignment(k, askPct = 115) {
   if (state.upgrades.broker < 2) { flash('市场渠道 Lv.2 才能使用寄售'); return; }
   if (state.consignments.length >= consignmentSlots()) { flash('寄售位已经满了'); return; }
   if (!state.collection[k] || isCardLocked(k)) { flash('这张卡不可寄售，请检查库存和锁定状态'); return; }
-  if (commissionReservedQty(k) >= state.collection[k] || state.retailListings.some(x => x.key === k)) {
+  if (reservedNormalQty(k) >= state.collection[k] || state.retailListings.some(x => x.key === k)) {
     flash('这张卡正被委托或店内货架占用'); return;
   }
   if (!CONSIGN_PRICE_OPTIONS.includes(askPct)) askPct = 115;
@@ -1996,6 +2072,7 @@ function listAuction(uid, reservePct = 110) {
   const index = state.specialCards.findIndex(c => c.uid === uid);
   if (index < 0) return;
   const card = state.specialCards[index];
+  if (isSpecialShowcased(uid)) { flash('请先从非卖品展柜撤下这张卡'); return; }
   if (card.locked) { flash('请先解除这张特效卡的收藏保护'); return; }
   if (!AUCTION_RESERVE_OPTIONS.includes(reservePct)) reservePct = 110;
   state.specialCards.splice(index, 1);
@@ -2290,7 +2367,7 @@ function rollNpcSpecial(quality) {
 
 function makeNpcOffer(dealer) {
   const rel = relationshipOf(dealer);
-  const matches = Object.keys(state.collection).filter(k => !isCardLocked(k)).map(k => ({ k, ...parseKey(k) }))
+  const matches = Object.keys(state.collection).filter(k => !isCardLocked(k) && state.collection[k] > reservedNormalQty(k)).map(k => ({ k, ...parseKey(k) }))
     .map(item => ({ ...item, quote: quoteCardToDealer(dealer, cardPool[item.id], item.s) }))
     .filter(item => item.quote.accepted && item.quote.score >= 1);
   const privateItem = npcSellItem(dealer);
@@ -2378,7 +2455,7 @@ function acceptOffer(i) {
   if (o.source === 'player' && (dealer.tradesDone || 0) >= dealer.maxTrades) { restoreOriginalOffer(i, o); flash(`${dealer.name} 今天不再接受主动售卡了`); renderAll(); return; }
   if (o.mode === 'buy') {
     const k = keyOf(o.id, o.s);
-    if (!state.collection[k]) { restoreOriginalOffer(i, o); flash('这张卡已经不在你手上了'); renderAll(); return; }
+    if (!state.collection[k] || state.collection[k] <= reservedNormalQty(k)) { restoreOriginalOffer(i, o); flash('这张卡正被展柜、委托或货架占用'); renderAll(); return; }
     if (isCardLocked(k)) { restoreOriginalOffer(i, o); flash('这张卡已锁定，已取消出售'); renderAll(); return; }
     if (dealer.budget < o.price) { restoreOriginalOffer(i, o); flash(`${dealer.name} 的预算已经不够了`); renderAll(); return; }
     state.collection[k]--;
@@ -2466,6 +2543,7 @@ function proposeCardToDealer(dealerId, k) {
   const dealer = dealerById(dealerId);
   if (!dealer || !state.collection[k]) return;
   if (isCardLocked(k)) { flash('这张卡已锁定，请先在收藏中解锁'); return; }
+  if (state.collection[k] <= reservedNormalQty(k)) { flash('这张卡正被展柜、委托或货架占用'); return; }
   const { id, s } = parseKey(k);
   const t = cardPool[id];
   const quote = quoteCardToDealer(dealer, t, s);
@@ -2817,7 +2895,7 @@ function buildSettlementHTML(snapshot, seasonChanged) {
       <div><small>藏品估值</small><strong class="${collectionValue >= snapshot.collectionValue ? 'up' : 'down'}">${signedMoney(collectionValue - snapshot.collectionValue)}</strong><em>现值 ¥${collectionValue}</em></div>
       <div><small>总身价变化</small><strong class="${worth >= snapshot.worth ? 'up' : 'down'}">${signedMoney(worth - snapshot.worth)}</strong><em>总计 ¥${worth}</em></div>
     </div>
-    <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}${state.lastRetailReport.branchNet ? ` · 分店留存 ¥${state.lastRetailReport.branchNet}` : ''}` : '今日没有顾客成交'}${state.lastRetailReport.operatingCost ? ` · 分店成本 ¥${state.lastRetailReport.operatingCost}` : ''}</b></div>
+    <div class="settlement-retail"><span>🛍️ 店内零售</span><b>${state.lastRetailReport.sales ? `售出 ${state.lastRetailReport.sales} 张 · 净收入 ¥${state.lastRetailReport.net}${state.lastRetailReport.displayBonus ? ` · 展示收益 +¥${state.lastRetailReport.displayBonus}` : ''}${state.lastRetailReport.branchNet ? ` · 分店留存 ¥${state.lastRetailReport.branchNet}` : ''}` : '今日没有顾客成交'}${state.lastRetailReport.operatingCost ? ` · 分店成本 ¥${state.lastRetailReport.operatingCost}` : ''}</b></div>
     <div class="settlement-retail"><span>🏷️ 寄售与拍卖</span><b>${state.lastMarketReport.consignSold || state.lastMarketReport.auctionsSold ? `寄售 ${state.lastMarketReport.consignSold} 笔 / 拍卖 ${state.lastMarketReport.auctionsSold} 场 · 净收入 ¥${state.lastMarketReport.consignNet + state.lastMarketReport.auctionNet}` : '今日没有渠道成交'}</b></div>
     <div class="settlement-retail"><span>🚚 批发到货</span><b>${state.lastWholesaleReport.orders ? `${state.lastWholesaleReport.orders} 批 · ${state.lastWholesaleReport.cards} 张 · 当前估值 ¥${state.lastWholesaleReport.value}` : '今日没有新批次到货'}</b></div>
     ${seasonExtras}
@@ -2944,11 +3022,13 @@ function cardHTML(t, opts = {}) {
     ? `<button class="card-lock-btn${special.locked ? ' is-locked' : ''}" type="button" title="${special.locked ? '解除特效卡保护' : '锁定特效卡'}" onclick="event.stopPropagation();toggleSpecialLock('${special.uid}')">${special.locked ? '🔒' : '🔓'}</button>`
     : '';
   const specialBadge = special ? `<span class="special-card-badge finish-${special.finish}">${specialLabel(special)}</span>` : '';
+  const displayBadge = opts.showcased ? '<span class="card-display-badge">🪟 展示中</span>' : '';
   const coreLabel = t.coreRank === 'entry' ? 'CORE·入门' : t.coreRank === 'advanced' ? 'CORE·进阶' : 'CORE·王牌';
   return `
   <div class="card rar-${t.rarity} art-${t.artStyle} arch-${t.archetype} tier-${t.tier}${special ? ` special-card finish-${special.finish}` : ''}${opts.zoomable ? ' card-clickable' : ''}${opts.selected ? ' batch-selected' : ''}${opts.locked || (special && special.locked) ? ' card-locked' : ''}"${zoomAttrs}>
     ${batchSelector}
     ${specialLockButton || lockButton}
+    ${displayBadge}
     <div class="card-head">
       <span class="cost-gem">${t.cost}</span>
       <span class="card-name">${t.name}</span>
@@ -2980,7 +3060,7 @@ function cardHTML(t, opts = {}) {
         ${opts.count ? `<span class="cnt">×${opts.count}</span>` : ''}
       </div>
     </div>
-    ${special && special.uid && opts.specialActions ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellSpecialToMarket('${special.uid}')" ${special.locked ? 'disabled' : ''}>${special.locked ? '🔒 特效卡已保护' : `卖给市场 ¥${Math.round(v * marketSellRate())}`}</button>` : opts.sellBtn ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellToMarket('${opts.key}')" ${opts.locked ? 'disabled' : ''}>${opts.locked ? '🔒 已锁定' : `卖给市场 ¥${sellPrice}`}</button>` : ''}
+    ${special && special.uid && opts.specialActions ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellSpecialToMarket('${special.uid}')" ${special.locked || opts.showcased ? 'disabled' : ''}>${opts.showcased ? '🪟 非卖品展示中' : special.locked ? '🔒 特效卡已保护' : `卖给市场 ¥${Math.round(v * marketSellRate())}`}</button>` : opts.sellBtn ? `<button class="btn sell-btn" onclick="event.stopPropagation();sellToMarket('${opts.key}')" ${opts.locked || opts.sellBlocked ? 'disabled' : ''}>${opts.sellBlocked ? '🪟 库存均被占用' : opts.locked ? '🔒 已锁定' : `卖给市场 ¥${sellPrice}`}</button>` : ''}
   </div>`;
 }
 
@@ -3052,6 +3132,16 @@ function renderStorefront() {
   const emptySlots = Array.from({ length: Math.max(0, visualSlotCount - Math.min(12, state.retailListings.length)) }, () => '<span class="store-empty-slot">＋</span>').join('');
   const branchShelfBadge = storeShelfSlots() > 12 ? `<span class="store-branch-shelves">分店货架 +${storeShelfSlots() - 12}</span>` : '';
   const branchNetwork = state.branchStores.length ? `<div class="store-branch-network" title="连锁分店">${state.branchStores.map(b => `<span class="branch-pin branch-pin-${b.type}${b.capital < branchDef(b).dailyCost ? ' offline' : ''}">${branchDef(b).icon}</span>`).join('')}</div>` : '';
+  state.showcaseItems = state.showcaseItems.filter(showcaseItemData).slice(0, showcaseSlots());
+  const showcaseData = state.showcaseItems.map(showcaseItemData).filter(Boolean);
+  const showcaseVisual = `<div class="store-showcase" title="非卖品展柜">${showcaseData.map(x => `<button onclick="openCardDetail(${x.t.id},${x.s}${x.card ? `,'${x.card.finish}',${x.card.serial || 0}` : ''})"><img src="${artFor(x.t)}" alt=""><span>${showcaseRateText(x.rate)}%</span></button>`).join('')}${Array.from({ length: showcaseSlots() - showcaseData.length }, () => '<i>＋</i>').join('')}</div>`;
+  const normalShowcaseCandidates = Object.keys(state.collection).filter(k => state.collection[k] > commissionReservedQty(k) + retailReservedQty(k) + showcaseReservedQty(k)).map(k => ({ k, ...parseKey(k) }));
+  const specialShowcaseCandidates = state.specialCards.filter(c => !isSpecialShowcased(c.uid));
+  const showcaseOptions = [
+    ...specialShowcaseCandidates.map(card => ({ value: `s:${card.uid}`, label: `${specialLabel(card)} · ${cardPool[card.id].name}`, rate: showcaseItemData({ type: 'special', uid: card.uid }).rate })),
+    ...normalShowcaseCandidates.map(x => ({ value: `n:${x.k}`, label: `${cardPool[x.id].rarity} · ${cardPool[x.id].name} · S${x.s}`, rate: showcaseItemData({ type: 'normal', key: x.k }).rate })),
+  ].sort((a, b) => b.rate - a.rate);
+  const showcaseRows = showcaseData.length ? showcaseData.map((x, i) => `<div class="showcase-row">${listingHTML(x.t, `<span class="showcase-effect">营业额 +${showcaseRateText(x.rate)}%<small>系统自动让高加成展品优先</small></span><button class="btn btn-dim" onclick="removeShowcaseItem(${i})">撤下</button>`, x.s, x.card)}</div>`).join('') : '<div class="showcase-empty">展柜目前为空；普通 N/R 卡可以展示，但不会产生经营加成。</div>';
   const rows = state.retailListings.map((l, i) => {
     const { id, s } = parseKey(l.key);
     const t = cardPool[id];
@@ -3107,9 +3197,15 @@ function renderStorefront() {
       <button class="store-zone store-counter" type="button" onclick="location.hash='#/market'" title="市场渠道 Lv.${state.upgrades.broker}"><span>收银台</span><b>渠道 Lv.${state.upgrades.broker}</b></button>
       <div class="store-crowd crowd-${Math.min(5, state.upgrades.promo)}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="store-shelves" aria-label="店内陈列">${shelfCards}${emptySlots}${branchShelfBadge}</div>
+      ${showcaseVisual}
       ${branchNetwork}
     </div></div>
     <div class="store-pan-hint" aria-hidden="true">← 左右滑动查看完整店铺 →</div>
+    <div class="showcase-manager">
+      <div class="showcase-manager-head"><div><h3>🪟 非卖品展柜</h3><p>${state.showcaseItems.length}/${showcaseSlots()} 个展位 · 当前按店内营业额额外获得 <b>${(showcaseRate() * 100).toFixed(1)}%</b>${state.lastRetailReport.gross ? ` · 按上次营业额约 +¥${Math.round(state.lastRetailReport.gross * showcaseRate())}` : ''}</p></div></div>
+      <div class="showcase-add"><select id="showcaseItemSelect"><option value="">选择收藏中的展品…</option>${showcaseOptions.map(x => `<option value="${x.value}">${x.label} · 基础 +${showcaseRateText(x.rate)}%</option>`).join('')}</select><button class="btn btn-primary" onclick="addShowcaseItem($('showcaseItemSelect').value)" ${state.showcaseItems.length >= showcaseSlots() || !showcaseOptions.length ? 'disabled' : ''}>放入展柜</button></div>
+      <div class="showcase-list">${showcaseRows}</div>
+    </div>
     <div class="branch-manager"><div class="branch-manager-head"><div><h3>连锁分店</h3><p>分店货架自动承接总店放不下的陈列卡；销售回款留在门店周转金中，需手动归集利润。</p></div></div><div class="branch-grid">${branchCards}</div></div>
     <div class="retail-manager">
       <div class="retail-manager-head"><div><h3>店内陈列</h3><p>${state.retailListings.length}/${storeShelfSlots()} 个陈列位 · 委托占用卡不会被自动上架 · 成交扣除 ${Math.round((1 - retailNetRate()) * 100)}% 运营成本</p></div></div>
@@ -3307,7 +3403,9 @@ function batchSalePlan() {
   collectionView.selected.forEach(k => {
     if (isCardLocked(k)) return;
     const owned = state.collection[k] || 0;
-    const qty = mode === 'all' ? owned : mode === 'one' ? Math.min(1, owned) : Math.max(0, owned - 1);
+    const reserved = reservedNormalQty(k);
+    const sellable = Math.max(0, owned - reserved);
+    const qty = mode === 'all' ? sellable : mode === 'one' ? Math.min(1, sellable) : Math.max(0, owned - Math.max(1, reserved));
     if (!qty) return;
     const { id, s } = parseKey(k);
     const unitPrice = Math.max(1, Math.round(cardValue(cardPool[id], s) * marketSellRate()));
@@ -3371,18 +3469,19 @@ function renderCollection() {
   const totalKinds = allEntries.length + state.specialCards.length;
   const shownKinds = entries.length + specials.length;
   $('collSummary').innerHTML = totalKinds
-    ? `共 <b>${totalKinds}</b> 种 · <b>${totalCards}</b> 张 · 总市值 <b>¥${totalVal}</b>${state.specialCards.length ? ` · 特效 <b>${state.specialCards.length}</b> 张` : ''}${lockedCount ? ` · 已保护 <b>${lockedCount}</b> 种` : ''}${shownKinds !== totalKinds ? ` · 当前显示 <b>${shownKinds}</b> 种` : ''}`
+    ? `共 <b>${totalKinds}</b> 种 · <b>${totalCards}</b> 张 · 总市值 <b>¥${totalVal}</b>${state.specialCards.length ? ` · 特效 <b>${state.specialCards.length}</b> 张` : ''}${state.showcaseItems.length ? ` · 展示 <b>${state.showcaseItems.length}</b> 张` : ''}${lockedCount ? ` · 已保护 <b>${lockedCount}</b> 种` : ''}${shownKinds !== totalKinds ? ` · 当前显示 <b>${shownKinds}</b> 种` : ''}`
     : '';
   $('collectionBatchActions').classList.toggle('hidden', !collectionView.batchMode);
   $('batchModeBtn').textContent = collectionView.batchMode ? '退出批量管理' : '☑ 批量管理';
   el.classList.toggle('batch-mode', collectionView.batchMode);
   const specialHTML = specials.map(card => cardHTML(cardPool[card.id], {
-    season: card.s, special: card, specialActions: true, zoomable: true,
+    season: card.s, special: card, specialActions: true, zoomable: true, showcased: isSpecialShowcased(card.uid),
   })).join('');
   const normalHTML = entries.map(e => cardHTML(cardPool[e.id], {
       season: e.s, count: state.collection[e.k], sellBtn: true, key: e.k, zoomable: true,
       lockable: true, locked: isCardLocked(e.k),
-      batchSelectable: collectionView.batchMode && !isCardLocked(e.k), selected: collectionView.selected.has(e.k),
+      showcased: !!showcaseReservedQty(e.k), sellBlocked: state.collection[e.k] <= reservedNormalQty(e.k),
+      batchSelectable: collectionView.batchMode && !isCardLocked(e.k) && state.collection[e.k] > reservedNormalQty(e.k), selected: collectionView.selected.has(e.k),
     })).join('');
   el.innerHTML = specialHTML + normalHTML || `<div class="empty">${totalKinds ? '没有符合当前筛选条件的卡牌' : '还没有卡牌，去「🎁 开包」页买包开卡吧！'}</div>`;
   updateBatchSaleSummary();
@@ -3412,7 +3511,7 @@ function renderMarketServices() {
       const ask = Math.round(cardValue(t, item.s) * item.askPct / 100);
       return listingHTML(t, `<span class="service-status">¥${ask} · 剩 ${item.daysLeft} 天</span><button class="btn btn-dim" onclick="cancelConsignment(${i})">撤回</button>`, item.s);
     }).join('')}</div>` : '<div class="service-empty">当前没有寄售中的卡牌</div>';
-    const candidates = Object.keys(state.collection).filter(k => !isCardLocked(k) && !state.retailListings.some(x => x.key === k) && state.collection[k] > commissionReservedQty(k))
+    const candidates = Object.keys(state.collection).filter(k => !isCardLocked(k) && !state.retailListings.some(x => x.key === k) && state.collection[k] > reservedNormalQty(k))
       .map(k => ({ k, ...parseKey(k) })).sort((a, b) => cardValue(cardPool[b.id], b.s) - cardValue(cardPool[a.id], a.s));
     const picker = state.consignments.length < consignmentSlots() ? `
       <div class="service-picker-head"><b>选择寄售卡</b><label>标价 <select onchange="marketServiceUI.consignPct=Number(this.value);renderMarketServices()">${CONSIGN_PRICE_OPTIONS.map(p => `<option value="${p}" ${marketServiceUI.consignPct === p ? 'selected' : ''}>行情 ${p}%</option>`).join('')}</select></label></div>
@@ -3428,7 +3527,7 @@ function renderMarketServices() {
       const status = item.currentBid ? `当前 ¥${item.currentBid} · ${item.bidders} 人` : '等待首位出价';
       return listingHTML(cardPool[card.id], `<span class="service-status">${status}<small>保留价 ¥${reserve} · ${Math.max(0, item.endDay - state.day)} 天</small></span><button class="btn btn-dim" onclick="cancelAuction(${i})" ${item.bidders ? 'disabled title="已有出价，不能撤拍"' : ''}>撤拍</button>`, card.s, card);
     }).join('')}</div>` : '<div class="service-empty">当前没有进行中的拍卖</div>';
-    const candidates = state.specialCards.filter(c => !c.locked).sort((a, b) => specialValue(b) - specialValue(a));
+    const candidates = state.specialCards.filter(c => !c.locked && !isSpecialShowcased(c.uid)).sort((a, b) => specialValue(b) - specialValue(a));
     const picker = state.auctions.length < auctionSlots() ? `
       <div class="service-picker-head"><b>选择送拍藏品</b><label>保留价 <select onchange="marketServiceUI.reservePct=Number(this.value);renderMarketServices()">${AUCTION_RESERVE_OPTIONS.map(p => `<option value="${p}" ${marketServiceUI.reservePct === p ? 'selected' : ''}>估值 ${p}%</option>`).join('')}</select></label></div>
       <div class="service-candidates">${candidates.length ? candidates.map(card => listingHTML(cardPool[card.id], `<button class="btn buy-btn" onclick="listAuction('${card.uid}',${marketServiceUI.reservePct})">送拍</button>`, card.s, card)).join('') : '<div class="service-empty">没有已解锁的特效卡；收藏保护中的卡不会显示</div>'}</div>` : '<div class="service-cap">拍卖席已满，等待落槌或撤拍后再送入。</div>';
@@ -3542,7 +3641,7 @@ function renderPrivateInventory() {
     el.innerHTML = '<div class="empty private-empty">从上方选择一位商人，查看 TA 对你收藏中每张卡的报价。</div>';
     return;
   }
-  const rows = Object.keys(state.collection).filter(k => !isCardLocked(k)).map(k => {
+  const rows = Object.keys(state.collection).filter(k => !isCardLocked(k) && state.collection[k] > reservedNormalQty(k)).map(k => {
     const { id, s } = parseKey(k);
     const t = cardPool[id];
     return { k, id, s, t, quote: quoteCardToDealer(dealer, t, s) };
@@ -3648,8 +3747,8 @@ function commissionCardHTML(c) {
 function commissionInventoryHTML(c) {
   const rows = Object.keys(state.collection).map(k => {
     const { id, s } = parseKey(k);
-    return { k, s, t: cardPool[id], count: state.collection[k], selected: c.deck[k] || 0 };
-  }).filter(x => x.t).sort((a, b) => {
+    return { k, s, t: cardPool[id], count: Math.max(0, state.collection[k] - showcaseReservedQty(k)), selected: c.deck[k] || 0 };
+  }).filter(x => x.t && x.count > 0).sort((a, b) => {
     const priority = x => x.t.tier === 'generic' ? 1 : x.t.archetype === c.archetype ? (x.t.tier === 'core' ? 3 : 2) : 0;
     return priority(b) - priority(a) || a.t.cost - b.t.cost || cardValue(b.t, b.s) - cardValue(a.t, a.s);
   });
